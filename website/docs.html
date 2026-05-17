@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Docs | Nightingale SRE</title>
+  <meta name="description" content="Nightingale SRE technical documentation -- architecture, webhook setup, configuration, REST API, and confidence scoring." />
+  <link rel="icon" type="image/png" href="logo.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --bg: #080d14;
+      --bg-alt: #0b1520;
+      --bg-panel: #0e1b28;
+      --bg-elevated: #111e2e;
+      --bg-card: #0f1c2a;
+
+      --accent: #00b8d4;
+      --accent-dim: rgba(0, 184, 212, 0.09);
+      --accent-glow: rgba(0, 184, 212, 0.05);
+      --accent-line: rgba(0, 184, 212, 0.18);
+      --accent-glass: rgba(0, 184, 212, 0.06);
+
+      --green: #00d97e;
+      --green-dim: rgba(0, 217, 126, 0.09);
+      --amber: #ffab00;
+      --amber-dim: rgba(255, 171, 0, 0.09);
+      --red: #f25555;
+      --red-dim: rgba(242, 85, 85, 0.09);
+
+      --text: #cce0f0;
+      --text-2: #5c7e9e;
+      --text-3: #2c4862;
+
+      --border: #0d1e2e;
+      --border-2: #172e44;
+      --border-3: #1f3e5a;
+
+      --serif: 'DM Serif Display', Georgia, serif;
+      --sans: 'Inter', system-ui, -apple-system, sans-serif;
+      --mono: 'JetBrains Mono', 'IBM Plex Mono', Menlo, monospace;
+
+      --ease: cubic-bezier(0.4, 0, 0.2, 1);
+      --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+      --w: 1120px;
+      --sidebar-w: 240px;
+    }
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      font-size: 16px;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+    body::after {
+      content: '';
+      position: fixed; inset: 0;
+      pointer-events: none; z-index: 9999;
+      opacity: 0.022;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+    ::selection { background: rgba(0, 184, 212, 0.14); }
+
+    /* ── NAV ── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+      background: rgba(8, 13, 20, 0.88);
+      backdrop-filter: blur(24px);
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.45s var(--ease);
+    }
+    nav.scrolled { border-bottom-color: var(--border-2); }
+    .nav-inner {
+      max-width: var(--w); margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 64px; padding: 0 40px;
+    }
+    .nav-brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+    .nav-logo-img {
+      width: 34px; height: 34px;
+      object-fit: contain;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+    .nav-name {
+      font-family: var(--mono); font-size: 12px; font-weight: 400;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--text);
+    }
+    .nav-links { display: flex; align-items: center; gap: 32px; }
+    .nav-links a {
+      font-size: 13px; font-weight: 400; color: var(--text-2);
+      text-decoration: none; letter-spacing: 0.02em; transition: color 0.25s;
+    }
+    .nav-links a:hover { color: var(--text); }
+    .nav-links a.active { color: var(--accent); }
+    .nav-cta {
+      font-family: var(--mono) !important; font-size: 11px !important;
+      letter-spacing: 0.10em !important; color: var(--accent) !important;
+      border: 1px solid var(--accent-line); padding: 7px 16px;
+      transition: all 0.25s !important;
+    }
+    .nav-cta:hover { background: var(--accent-dim) !important; border-color: var(--accent) !important; }
+
+    /* ── LAYOUT ── */
+    .docs-layout {
+      max-width: var(--w); margin: 0 auto;
+      padding: 96px 40px 80px;
+      display: grid;
+      grid-template-columns: var(--sidebar-w) 1fr;
+      gap: 56px;
+    }
+
+    /* ── SIDEBAR ── */
+    .sidebar {
+      position: sticky;
+      top: 96px;
+      align-self: start;
+      max-height: calc(100vh - 128px);
+      overflow-y: auto;
+      padding-right: 8px;
+    }
+    .sidebar::-webkit-scrollbar { width: 3px; }
+    .sidebar::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
+
+    .sidebar-group { margin-bottom: 28px; }
+    .sidebar-label {
+      font-family: var(--mono);
+      font-size: 9.5px; font-weight: 500;
+      letter-spacing: 0.13em; text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 8px; padding-left: 10px;
+    }
+    .sidebar-group a {
+      display: block;
+      font-size: 12.5px; font-weight: 400;
+      color: var(--text-2);
+      text-decoration: none;
+      padding: 5px 10px;
+      border-radius: 5px;
+      border-left: 2px solid transparent;
+      transition: all 0.2s var(--ease);
+      line-height: 1.4;
+    }
+    .sidebar-group a:hover {
+      color: var(--text);
+      background: var(--accent-glass);
+    }
+    .sidebar-group a.active {
+      color: var(--accent);
+      border-left-color: var(--accent);
+      background: var(--accent-glass);
+      font-weight: 500;
+    }
+
+    /* ── CONTENT ── */
+    .docs-content { min-width: 0; }
+
+    .docs-hero { margin-bottom: 64px; }
+    .docs-hero h1 {
+      font-family: var(--serif);
+      font-size: 44px; font-weight: 400;
+      line-height: 1.12; letter-spacing: -0.01em;
+      margin-bottom: 16px; color: var(--text);
+    }
+    .docs-hero p {
+      font-size: 16px; color: var(--text-2);
+      max-width: 520px; line-height: 1.7;
+    }
+
+    .docs-section {
+      margin-bottom: 72px;
+      scroll-margin-top: 96px;
+    }
+    .docs-section h2 {
+      font-family: var(--serif);
+      font-size: 28px; font-weight: 400;
+      margin-bottom: 8px; letter-spacing: -0.005em;
+      color: var(--text);
+    }
+    .docs-section h3 {
+      font-family: var(--sans);
+      font-size: 16px; font-weight: 600;
+      margin-top: 36px; margin-bottom: 10px;
+      color: var(--text);
+    }
+    .docs-section h4 {
+      font-family: var(--mono);
+      font-size: 12px; font-weight: 500;
+      margin-top: 24px; margin-bottom: 8px;
+      color: var(--accent);
+      letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .section-line {
+      width: 36px; height: 2px;
+      background: var(--accent); opacity: 0.35;
+      margin-bottom: 22px; border-radius: 1px;
+    }
+    .docs-section p, .docs-section li {
+      font-size: 14.5px; color: var(--text-2); line-height: 1.75;
+    }
+    .docs-section ul, .docs-section ol {
+      padding-left: 20px; margin: 10px 0;
+    }
+    .docs-section li { margin-bottom: 5px; }
+
+    /* ── CODE BLOCKS ── */
+    .code-block {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-2);
+      border-radius: 8px;
+      margin: 18px 0; overflow: hidden;
+    }
+    .code-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 9px 18px;
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border-2);
+    }
+    .code-lang {
+      font-family: var(--mono);
+      font-size: 10px; font-weight: 400;
+      color: var(--text-3);
+      letter-spacing: 0.08em; text-transform: uppercase;
+    }
+    .code-copy {
+      font-family: var(--mono);
+      font-size: 11px; color: var(--text-3);
+      background: none; border: 1px solid var(--border-3);
+      padding: 3px 10px; border-radius: 4px;
+      cursor: pointer; transition: all 0.2s;
+    }
+    .code-copy:hover { color: var(--accent); border-color: var(--accent-line); }
+
+    .code-body { padding: 18px 20px; overflow-x: auto; }
+    .code-body pre {
+      font-family: var(--mono);
+      font-size: 13px; line-height: 1.65;
+      color: #8ab4cc; white-space: pre; margin: 0;
+    }
+    .code-body .kw  { color: #7dcfb6; }
+    .code-body .fn  { color: #82aaff; }
+    .code-body .str { color: #9ece6a; }
+    .code-body .cmt { color: #3b5d77; font-style: italic; }
+    .code-body .num { color: #ff9e64; }
+    .code-body .cls { color: #e0af68; }
+    .code-body .key { color: #00b8d4; }
+    .code-body .val { color: #9ece6a; }
+    .code-body .dim { color: var(--text-3); }
+    .code-body .ok  { color: #00d97e; }
+    .code-body .warn { color: #ffab00; }
+    .code-body .err { color: #f25555; }
+
+    code {
+      font-family: var(--mono); font-size: 12.5px;
+      background: var(--bg-elevated);
+      padding: 2px 7px; border-radius: 4px;
+      color: var(--accent);
+      border: 1px solid var(--border-2);
+    }
+
+    /* ── TABLES ── */
+    .docs-table {
+      width: 100%; border-collapse: collapse;
+      margin: 18px 0; font-size: 13.5px;
+    }
+    .docs-table th {
+      font-family: var(--mono);
+      font-size: 10px; font-weight: 500;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--text-3); text-align: left;
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--border-2);
+      background: var(--bg-elevated);
+    }
+    .docs-table td {
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-2); vertical-align: top;
+      font-size: 13.5px;
+    }
+    .docs-table td:first-child {
+      font-family: var(--mono); font-size: 12.5px;
+      color: var(--accent); font-weight: 400; white-space: nowrap;
+    }
+    .docs-table tr:last-child td { border-bottom: none; }
+    .docs-table tr:hover td { background: rgba(0,184,212,0.025); }
+
+    /* ── CALLOUTS ── */
+    .callout {
+      padding: 14px 18px; border-radius: 6px;
+      margin: 18px 0; font-size: 13.5px; line-height: 1.65;
+      border-left: 3px solid;
+    }
+    .callout-info {
+      background: var(--accent-glass);
+      border-color: var(--accent);
+      color: var(--text-2);
+    }
+    .callout-warn {
+      background: var(--amber-dim);
+      border-color: var(--amber);
+      color: var(--text-2);
+    }
+    .callout-ok {
+      background: var(--green-dim);
+      border-color: var(--green);
+      color: var(--text-2);
+    }
+    .callout-label {
+      font-family: var(--mono);
+      font-size: 10px; font-weight: 500;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      margin-bottom: 4px; display: block;
+    }
+    .callout-info .callout-label { color: var(--accent); }
+    .callout-warn .callout-label { color: var(--amber); }
+    .callout-ok .callout-label { color: var(--green); }
+
+    /* ── BADGES ── */
+    .badge {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 10px; font-weight: 500;
+      letter-spacing: 0.04em;
+      padding: 2px 7px; border-radius: 3px;
+      vertical-align: middle;
+    }
+    .badge-ok  { background: var(--green-dim); color: var(--green); }
+    .badge-warn { background: var(--amber-dim); color: var(--amber); }
+    .badge-err  { background: var(--red-dim); color: var(--red); }
+    .badge-info { background: var(--accent-dim); color: var(--accent); }
+
+    /* ── ARCH DIAGRAM ── */
+    .arch-flow {
+      display: flex; align-items: center; gap: 0;
+      margin: 20px 0; overflow-x: auto; padding: 4px 0;
+    }
+    .arch-node {
+      flex-shrink: 0;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-2);
+      border-radius: 6px;
+      padding: 10px 16px;
+      text-align: center;
+    }
+    .arch-node .an-label {
+      font-family: var(--mono);
+      font-size: 10.5px; font-weight: 500;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--accent);
+      display: block; margin-bottom: 2px;
+    }
+    .arch-node .an-sub {
+      font-size: 11px; color: var(--text-3); white-space: nowrap;
+    }
+    .arch-arrow {
+      flex-shrink: 0;
+      font-family: var(--mono); font-size: 13px;
+      color: var(--border-3); padding: 0 8px;
+    }
+
+    /* ── SCORE LEVELS ── */
+    .score-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 12px; margin: 18px 0;
+    }
+    .score-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-2);
+      border-radius: 6px;
+      padding: 16px; text-align: center;
+    }
+    .score-card .sc-val {
+      font-family: var(--mono); font-size: 22px; font-weight: 500;
+      margin-bottom: 4px;
+    }
+    .score-card .sc-label {
+      font-family: var(--mono); font-size: 10px;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--text-3);
+    }
+    .sc-green { color: var(--green); }
+    .sc-amber { color: var(--amber); }
+    .sc-red   { color: var(--red); }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid var(--border-2);
+      padding: 28px 40px;
+    }
+    .foot-inner {
+      max-width: var(--w); margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .foot-logo {
+      width: 24px; height: 24px;
+      image-rendering: pixelated; image-rendering: crisp-edges;
+      opacity: 0.5;
+    }
+    .foot-left {
+      display: flex; align-items: center; gap: 10px;
+      font-family: var(--mono); font-size: 11px;
+      color: var(--text-3); letter-spacing: 0.05em;
+    }
+    .foot-center { display: flex; gap: 24px; }
+    .foot-center a {
+      font-size: 12px; color: var(--text-2);
+      text-decoration: none; transition: color 0.2s;
+    }
+    .foot-center a:hover { color: var(--accent); }
+    .foot-right {
+      font-family: var(--mono); font-size: 11px;
+      color: var(--text-3); letter-spacing: 0.04em;
+    }
+
+    /* ── MOBILE SIDEBAR ── */
+    .sidebar-toggle {
+      display: none;
+      position: fixed; bottom: 24px; right: 24px; z-index: 200;
+      width: 44px; height: 44px; border-radius: 50%;
+      background: var(--accent); color: var(--bg);
+      border: none; cursor: pointer; font-size: 18px;
+      box-shadow: 0 4px 20px rgba(0, 184, 212, 0.35);
+      transition: transform 0.2s;
+    }
+    .sidebar-toggle:active { transform: scale(0.92); }
+
+    /* ── SCROLL ANIMATIONS ── */
+    .rv {
+      opacity: 0; transform: translateY(18px);
+      transition: opacity 0.65s var(--ease-out), transform 0.65s var(--ease-out);
+    }
+    .rv.vis { opacity: 1; transform: translateY(0); }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 1024px) {
+      .docs-layout { grid-template-columns: 200px 1fr; gap: 36px; padding: 96px 28px 60px; }
+    }
+    @media (max-width: 768px) {
+      .docs-layout { grid-template-columns: 1fr; padding: 80px 20px 48px; }
+      .sidebar {
+        position: fixed; top: 0; left: 0; bottom: 0; width: 272px;
+        max-height: 100vh; background: var(--bg-panel);
+        padding: 80px 20px 20px;
+        transform: translateX(-100%);
+        transition: transform 0.35s var(--ease-out);
+        z-index: 150; border-right: 1px solid var(--border-2);
+      }
+      .sidebar.open { transform: translateX(0); }
+      .sidebar-toggle { display: flex; align-items: center; justify-content: center; }
+      .sidebar-overlay {
+        display: none; position: fixed; inset: 0;
+        background: rgba(0,0,0,0.5); z-index: 140;
+      }
+      .sidebar-overlay.show { display: block; }
+      .score-grid { grid-template-columns: 1fr; }
+      .nav-inner { padding: 0 20px; }
+      footer { padding: 24px 20px; }
+      .foot-inner { flex-direction: column; gap: 12px; text-align: center; }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- NAV -->
+  <nav id="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-brand">
+        <img src="logo.png" alt="Nightingale" class="nav-logo-img" />
+        <span class="nav-name">Nightingale</span>
+      </a>
+      <div class="nav-links">
+        <a href="index.html#how-it-works">How it works</a>
+        <a href="index.html#features">Features</a>
+        <a href="docs.html" class="active">Docs</a>
+        <a href="https://github.com/aadi-joshi/nightingale-sre" class="nav-cta">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- SIDEBAR OVERLAY (mobile) -->
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <div class="docs-layout">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-group">
+        <div class="sidebar-label">Overview</div>
+        <a href="#architecture">Architecture</a>
+        <a href="#quickstart">Quick Start</a>
+        <a href="#concepts">Core Concepts</a>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-label">Setup</div>
+        <a href="#webhook">Webhook Setup</a>
+        <a href="#config">Configuration</a>
+        <a href="#env">Environment Vars</a>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-label">Reference</div>
+        <a href="#api">REST API</a>
+        <a href="#confidence">Confidence Scoring</a>
+        <a href="#sandbox">Sandbox</a>
+        <a href="#safety">Safety Controls</a>
+      </div>
+    </aside>
+
+    <!-- CONTENT -->
+    <main class="docs-content">
+
+      <div class="docs-hero rv">
+        <h1>Documentation</h1>
+        <p>Technical reference for Nightingale SRE -- from webhook setup to confidence scoring internals.</p>
+      </div>
+
+      <!-- ═══ OVERVIEW ═══ -->
+
+      <section class="docs-section rv" id="architecture">
+        <h2>Architecture</h2>
+        <div class="section-line"></div>
+        <p>Nightingale is a stateless webhook service. A failed CI run triggers a GitHub webhook, Nightingale diagnoses the failure, generates a fix, verifies it in an isolated sandbox, and opens a pull request. No persistent agent loop, no background polling.</p>
+
+        <div class="arch-flow">
+          <div class="arch-node">
+            <span class="an-label">GitHub</span>
+            <span class="an-sub">check_run webhook</span>
+          </div>
+          <div class="arch-arrow">--&gt;</div>
+          <div class="arch-node">
+            <span class="an-label">Receiver</span>
+            <span class="an-sub">HMAC verify</span>
+          </div>
+          <div class="arch-arrow">--&gt;</div>
+          <div class="arch-node">
+            <span class="an-label">Diagnoser</span>
+            <span class="an-sub">GPT-4o root cause</span>
+          </div>
+          <div class="arch-arrow">--&gt;</div>
+          <div class="arch-node">
+            <span class="an-label">Patcher</span>
+            <span class="an-sub">unified diff</span>
+          </div>
+          <div class="arch-arrow">--&gt;</div>
+          <div class="arch-node">
+            <span class="an-label">Sandbox</span>
+            <span class="an-sub">Docker / venv</span>
+          </div>
+          <div class="arch-arrow">--&gt;</div>
+          <div class="arch-node">
+            <span class="an-label">Scorer</span>
+            <span class="an-sub">confidence 0-100</span>
+          </div>
+          <div class="arch-arrow">--&gt;</div>
+          <div class="arch-node">
+            <span class="an-label">GitHub PR</span>
+            <span class="an-sub">REST API</span>
+          </div>
+        </div>
+
+        <h3>Components</h3>
+        <table class="docs-table">
+          <thead>
+            <tr><th>Module</th><th>File</th><th>Responsibility</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>WebhookReceiver</td><td>nightingale/webhook.py</td><td>Receive, verify, and dispatch GitHub webhook events</td></tr>
+            <tr><td>Diagnoser</td><td>nightingale/diagnoser.py</td><td>Call GPT-4o with failure context, extract structured root cause</td></tr>
+            <tr><td>Patcher</td><td>nightingale/patcher.py</td><td>Generate unified diff patch from diagnosis and source context</td></tr>
+            <tr><td>SandboxRunner</td><td>nightingale/sandbox.py</td><td>Apply patch to isolated copy, run tests, capture output</td></tr>
+            <tr><td>ConfidenceScorer</td><td>nightingale/scorer.py</td><td>Score fix quality across 5 dimensions, decide whether to open PR</td></tr>
+            <tr><td>GitHubClient</td><td>nightingale/github_client.py</td><td>Create branches, commit patches, open pull requests via REST API</td></tr>
+            <tr><td>Dashboard</td><td>nightingale/dashboard.py</td><td>Bloomberg-style terminal UI (Rich library)</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout callout-info">
+          <span class="callout-label">Design principle</span>
+          Each component is independently testable and replaceable. The LLM call is isolated in Diagnoser; every other component is deterministic.
+        </div>
+      </section>
+
+      <section class="docs-section rv" id="quickstart">
+        <h2>Quick Start</h2>
+        <div class="section-line"></div>
+        <p>Get Nightingale running locally in under 5 minutes.</p>
+
+        <h3>1. Clone and install</h3>
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">shell</span>
+            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+          </div>
+          <div class="code-body"><pre>git clone https://github.com/aadi-joshi/nightingale-sre
+cd nightingale-sre
+pip install -r requirements.txt</pre></div>
+        </div>
+
+        <h3>2. Configure credentials</h3>
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">shell</span>
+            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+          </div>
+          <div class="code-body"><pre>cp .env.example .env
+<span class="cmt"># Edit .env with your values:</span>
+OPENAI_API_KEY=sk-...
+GITHUB_TOKEN=ghp_...
+GITHUB_WEBHOOK_SECRET=your-webhook-secret
+TARGET_REPO=owner/repo</pre></div>
+        </div>
+
+        <h3>3. Run the server</h3>
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">shell</span>
+            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+          </div>
+          <div class="code-body"><pre>python -m nightingale.main
+
+<span class="ok">INFO</span>     Nightingale SRE starting...
+<span class="ok">INFO</span>     Webhook server on http://0.0.0.0:8765
+<span class="ok">INFO</span>     Target repo: owner/repo
+<span class="ok">INFO</span>     Confidence threshold: 70</pre></div>
+        </div>
+
+        <h3>4. Expose via ngrok (for GitHub webhook)</h3>
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">shell</span>
+            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+          </div>
+          <div class="code-body"><pre>ngrok http 8765
+<span class="cmt"># Copy the Forwarding URL, e.g. https://abc123.ngrok.io</span>
+<span class="cmt"># Add it as your webhook URL in GitHub: /webhook/github</span></pre></div>
+        </div>
+
+        <div class="callout callout-ok">
+          <span class="callout-label">Try it now</span>
+          Break a test in your repo and push. Nightingale will open a pull request within 10 seconds.
+        </div>
+      </section>
+
+      <section class="docs-section rv" id="concepts">
+        <h2>Core Concepts</h2>
+        <div class="section-line"></div>
+
+        <h3>Fix Pipeline</h3>
+        <p>A single end-to-end repair takes three LLM-free steps plus one GPT-4o call. The LLM call happens only at the diagnosis stage -- every other step is deterministic code.</p>
+
+        <h3>Confidence Threshold</h3>
+        <p>Nightingale will not open a PR unless the fix scores above the configured <code>confidence_threshold</code> (default: 70). Below that, the event is logged and flagged for human review. This prevents low-quality patches from landing in your codebase.</p>
+
+        <h3>Sandbox Isolation</h3>
+        <p>Every patch is tested in an isolated copy of the repository. Nightingale clones the repo into a temp directory, applies the unified diff, runs the test suite, and captures stdout/stderr. The original repo is never modified until the PR is opened.</p>
+
+        <h3>Idempotency</h3>
+        <p>Nightingale tracks which <code>check_run</code> IDs have already been processed. Re-delivered webhooks are ignored. If an open PR for a given branch already exists, Nightingale updates it rather than opening a duplicate.</p>
+      </section>
+
+      <!-- ═══ SETUP ═══ -->
+
+      <section class="docs-section rv" id="webhook">
+        <h2>Webhook Setup</h2>
+        <div class="section-line"></div>
+        <p>Nightingale listens for GitHub <code>check_run</code> events. Configure a webhook in your repository settings.</p>
+
+        <h3>GitHub repository settings</h3>
+        <table class="docs-table">
+          <thead>
+            <tr><th>Field</th><th>Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Payload URL</td><td><code>https://your-host/webhook/github</code></td></tr>
+            <tr><td>Content type</td><td><code>application/json</code></td></tr>
+            <tr><td>Secret</td><td>Any strong random string (matches <code>GITHUB_WEBHOOK_SECRET</code>)</td></tr>
+            <tr><td>Events</td><td>Check runs (or "Send me everything" for testing)</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Payload verification</h3>
+        <p>Every incoming request is verified using HMAC-SHA256 before any processing. The <code>X-Hub-Signature-256</code> header is checked against the raw request body and your webhook secret. Requests with missing or invalid signatures are rejected with HTTP 401.</p>
+
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">python</span>
+            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+          </div>
+          <div class="code-body"><pre><span class="cmt"># nightingale/webhook.py -- signature check</span>
+<span class="kw">import</span> hmac, hashlib
+
+<span class="kw">def</span> <span class="fn">verify_signature</span>(payload: <span class="cls">bytes</span>, secret: <span class="cls">str</span>, sig_header: <span class="cls">str</span>) -> <span class="cls">bool</span>:
+    expected = <span class="str">"sha256="</span> + hmac.<span class="fn">new</span>(
+        secret.<span class="fn">encode</span>(), payload, hashlib.sha256
+    ).<span class="fn">hexdigest</span>()
+    <span class="kw">return</span> hmac.<span class="fn">compare_digest</span>(expected, sig_header)</pre></div>
+        </div>
+
+        <h3>Event filtering</h3>
+        <p>Nightingale only acts on <code>check_run</code> events where:</p>
+        <ul>
+          <li>Action is <code>completed</code></li>
+          <li>Conclusion is <code>failure</code></li>
+          <li>The check run is on the default branch (or a configured branch)</li>
+        </ul>
+
+        <div class="callout callout-warn">
+          <span class="callout-label">Rate limits</span>
+          The GitHub REST API allows 5,000 requests per hour per token. Each repair uses approximately 6 API calls. At high failure rates, consider batching or adding a cooldown between repairs.
+        </div>
+      </section>
+
+      <section class="docs-section rv" id="config">
+        <h2>Configuration</h2>
+        <div class="section-line"></div>
+        <p>Nightingale reads configuration from <code>nightingale.yml</code> in the project root. All keys are optional -- defaults are shown below.</p>
+
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">yaml</span>
+            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+          </div>
+          <div class="code-body"><pre><span class="key">confidence_threshold</span><span class="dim">:</span> <span class="num">70</span>        <span class="cmt"># 0-100, PR only opens above this</span>
+<span class="key">max_attempts</span><span class="dim">:</span> <span class="num">3</span>                  <span class="cmt"># retries per failure before giving up</span>
+<span class="key">sandbox_timeout</span><span class="dim">:</span> <span class="num">60</span>              <span class="cmt"># seconds to wait for test run</span>
+<span class="key">model</span><span class="dim">:</span> <span class="val">gpt-4o</span>                    <span class="cmt"># OpenAI model for diagnosis</span>
+<span class="key">test_command</span><span class="dim">:</span> <span class="val">pytest</span>             <span class="cmt"># command to run tests in sandbox</span>
+<span class="key">pr_draft</span><span class="dim">:</span> <span class="kw">false</span>                  <span class="cmt"># open PRs as draft</span>
+<span class="key">pr_label</span><span class="dim">:</span> <span class="val">nightingale</span>           <span class="cmt"># label to apply to opened PRs</span>
+<span class="key">branch_prefix</span><span class="dim">:</span> <span class="val">nightingale/fix</span>  <span class="cmt"># prefix for repair branches</span>
+<span class="key">notify_slack</span><span class="dim">:</span> <span class="kw">false</span>              <span class="cmt"># post to Slack on each outcome</span>
+<span class="key">dashboard</span><span class="dim">:</span> <span class="kw">true</span>                  <span class="cmt"># show terminal dashboard</span></pre></div>
+        </div>
+
+        <table class="docs-table">
+          <thead>
+            <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>confidence_threshold</td><td>int</td><td>70</td><td>Minimum score to open a PR. Below this, fix is logged but not submitted.</td></tr>
+            <tr><td>max_attempts</td><td>int</td><td>3</td><td>How many times to retry patch generation if the sandbox run fails.</td></tr>
+            <tr><td>sandbox_timeout</td><td>int</td><td>60</td><td>Seconds before the sandbox test run is killed.</td></tr>
+            <tr><td>model</td><td>str</td><td>gpt-4o</td><td>OpenAI model used for root cause analysis and patch generation.</td></tr>
+            <tr><td>test_command</td><td>str</td><td>pytest</td><td>Command run inside the sandbox to verify the fix.</td></tr>
+            <tr><td>pr_draft</td><td>bool</td><td>false</td><td>Open pull requests as drafts for human review before merge.</td></tr>
+            <tr><td>branch_prefix</td><td>str</td><td>nightingale/fix</td><td>Prefix for repair branches. Full branch: <code>{prefix}-{run_id}</code>.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="docs-section rv" id="env">
+        <h2>Environment Variables</h2>
+        <div class="section-line"></div>
+        <p>Required secrets go in <code>.env</code> (never commit this file). Nightingale reads them via <code>python-dotenv</code> at startup.</p>
+
+        <table class="docs-table">
+          <thead>
+            <tr><th>Variable</th><th>Required</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>OPENAI_API_KEY</td><td><span class="badge badge-err">required</span></td><td>OpenAI API key for GPT-4o calls</td></tr>
+            <tr><td>GITHUB_TOKEN</td><td><span class="badge badge-err">required</span></td><td>Personal access token or GitHub App token with <code>repo</code> scope</td></tr>
+            <tr><td>GITHUB_WEBHOOK_SECRET</td><td><span class="badge badge-err">required</span></td><td>HMAC secret matching the webhook configuration in GitHub</td></tr>
+            <tr><td>TARGET_REPO</td><td><span class="badge badge-err">required</span></td><td>Repository to monitor, in <code>owner/repo</code> format</td></tr>
+            <tr><td>NIGHTINGALE_PORT</td><td><span class="badge badge-warn">optional</span></td><td>Webhook server port (default: 8765)</td></tr>
+            <tr><td>SLACK_WEBHOOK_URL</td><td><span class="badge badge-warn">optional</span></td><td>Incoming webhook URL for Slack notifications</td></tr>
+            <tr><td>LOG_LEVEL</td><td><span class="badge badge-warn">optional</span></td><td>Log verbosity: DEBUG, INFO, WARNING, ERROR (default: INFO)</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout callout-warn">
+          <span class="callout-label">GitHub token scopes</span>
+          The token needs: <code>repo</code> (read code, create branches, open PRs) and <code>read:checks</code> (read check run logs). Use a fine-grained token scoped to only the target repository.
+        </div>
+      </section>
+
+      <!-- ═══ REFERENCE ═══ -->
+
+      <section class="docs-section rv" id="api">
+        <h2>REST API</h2>
+        <div class="section-line"></div>
+        <p>Nightingale exposes a small HTTP API alongside the webhook endpoint. All responses are JSON.</p>
+
+        <h3>Endpoints</h3>
+        <table class="docs-table">
+          <thead>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>POST</td><td>/webhook/github</td><td>Receive GitHub webhook events</td></tr>
+            <tr><td>GET</td><td>/health</td><td>Health check -- returns <code>{"status":"ok"}</code></td></tr>
+            <tr><td>GET</td><td>/status</td><td>Current agent status and last repair details</td></tr>
+            <tr><td>GET</td><td>/repairs</td><td>List of recent repair attempts with outcomes</td></tr>
+            <tr><td>GET</td><td>/repairs/{id}</td><td>Full details of a specific repair: diagnosis, patch, confidence, PR URL</td></tr>
+            <tr><td>POST</td><td>/trigger</td><td>Manually trigger a repair for a given commit SHA</td></tr>
+          </tbody>
+        </table>
+
+        <h3>GET /status</h3>
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">json</span>
+            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+          </div>
+          <div class="code-body"><pre>{
+  <span class="key">"status"</span>: <span class="val">"idle"</span>,
+  <span class="key">"total_repairs"</span>: <span class="num">14</span>,
+  <span class="key">"success_rate"</span>: <span class="num">0.857</span>,
+  <span class="key">"last_repair"</span>: {
+    <span class="key">"id"</span>: <span class="val">"rep_a1b2c3"</span>,
+    <span class="key">"timestamp"</span>: <span class="val">"2026-05-17T09:14:22Z"</span>,
+    <span class="key">"outcome"</span>: <span class="val">"pr_opened"</span>,
+    <span class="key">"confidence"</span>: <span class="num">84</span>,
+    <span class="key">"pr_url"</span>: <span class="val">"https://github.com/owner/repo/pull/47"</span>
+  }
+}</pre></div>
+        </div>
+
+        <h3>POST /trigger</h3>
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">json</span>
+            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+          </div>
+          <div class="code-body"><pre><span class="cmt">// Request body</span>
+{
+  <span class="key">"repo"</span>: <span class="val">"owner/repo"</span>,
+  <span class="key">"sha"</span>: <span class="val">"abc123def456"</span>,
+  <span class="key">"check_run_id"</span>: <span class="num">9876543210</span>
+}</pre></div>
+        </div>
+      </section>
+
+      <section class="docs-section rv" id="confidence">
+        <h2>Confidence Scoring</h2>
+        <div class="section-line"></div>
+        <p>Before opening a PR, Nightingale scores the fix across five dimensions. The composite score must exceed <code>confidence_threshold</code> (default 70) or the patch is discarded.</p>
+
+        <div class="score-grid">
+          <div class="score-card">
+            <div class="sc-val sc-green">&ge;80</div>
+            <div class="sc-label">High -- PR opened</div>
+          </div>
+          <div class="score-card">
+            <div class="sc-val sc-amber">70-79</div>
+            <div class="sc-label">Medium -- PR opened</div>
+          </div>
+          <div class="score-card">
+            <div class="sc-val sc-red">&lt;70</div>
+            <div class="sc-label">Low -- flagged, no PR</div>
+          </div>
+        </div>
+
+        <h3>Scoring dimensions</h3>
+        <table class="docs-table">
+          <thead>
+            <tr><th>Dimension</th><th>Weight</th><th>How it's measured</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>test_pass_rate</td><td>35%</td><td>Fraction of tests passing after patch is applied in the sandbox</td></tr>
+            <tr><td>patch_precision</td><td>25%</td><td>Lines changed / lines in failing test file -- smaller targeted patches score higher</td></tr>
+            <tr><td>syntax_validity</td><td>20%</td><td>Whether the patched file parses without syntax errors</td></tr>
+            <tr><td>diagnosis_confidence</td><td>10%</td><td>GPT-4o self-reported confidence from structured output</td></tr>
+            <tr><td>scope_containment</td><td>10%</td><td>Whether the patch is limited to the identified failure file</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">python</span>
+            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+          </div>
+          <div class="code-body"><pre><span class="cmt"># nightingale/scorer.py -- composite scoring</span>
+<span class="kw">def</span> <span class="fn">score</span>(self, result: <span class="cls">SandboxResult</span>, diagnosis: <span class="cls">Diagnosis</span>) -> <span class="cls">ConfidenceScore</span>:
+    components = {
+        <span class="str">"test_pass_rate"</span>:        result.pass_rate          * <span class="num">35</span>,
+        <span class="str">"patch_precision"</span>:      self.<span class="fn">_precision</span>(result)   * <span class="num">25</span>,
+        <span class="str">"syntax_validity"</span>:      result.syntax_ok           * <span class="num">20</span>,
+        <span class="str">"diagnosis_confidence"</span>: diagnosis.confidence / <span class="num">100</span>  * <span class="num">10</span>,
+        <span class="str">"scope_containment"</span>:    self.<span class="fn">_scope</span>(result)        * <span class="num">10</span>,
+    }
+    total = <span class="fn">sum</span>(components.values())
+    <span class="kw">return</span> <span class="cls">ConfidenceScore</span>(total=total, components=components)</pre></div>
+        </div>
+
+        <div class="callout callout-info">
+          <span class="callout-label">Tuning</span>
+          Lower <code>confidence_threshold</code> for repositories with flaky tests where even partial fixes are valuable. Raise it for production-critical repos where every merged fix must be clean.
+        </div>
+      </section>
+
+      <section class="docs-section rv" id="sandbox">
+        <h2>Sandbox</h2>
+        <div class="section-line"></div>
+        <p>The sandbox is how Nightingale verifies a fix before submitting it. It runs entirely locally with no external calls.</p>
+
+        <h3>Sandbox modes</h3>
+        <table class="docs-table">
+          <thead>
+            <tr><th>Mode</th><th>How it works</th><th>When to use</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>venv</td><td>Creates a fresh virtualenv, installs dependencies, runs test command</td><td>Default -- works without Docker</td></tr>
+            <tr><td>docker</td><td>Spins up a container from the repo's Dockerfile, runs tests inside</td><td>When parity with CI environment matters</td></tr>
+            <tr><td>subprocess</td><td>Runs tests in the current Python environment</td><td>Quick local development, no isolation</td></tr>
+          </tbody>
+        </table>
+
+        <p>Configure the mode via <code>sandbox_mode</code> in <code>nightingale.yml</code> (default: <code>venv</code>).</p>
+
+        <h3>What the sandbox runs</h3>
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">shell</span>
+            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+          </div>
+          <div class="code-body"><pre><span class="cmt"># Steps for venv mode</span>
+git clone --depth=1 {repo} .sandbox/run_{id}
+cd .sandbox/run_{id}
+git apply patch.diff
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt -q
+.venv/bin/pytest --tb=short --timeout=30 -q</pre></div>
+        </div>
+      </section>
+
+      <section class="docs-section rv" id="safety">
+        <h2>Safety Controls</h2>
+        <div class="section-line"></div>
+        <p>Nightingale includes several guardrails to prevent bad patches from reaching your codebase.</p>
+
+        <h3>Patch scope limits</h3>
+        <p>By default, Nightingale will refuse to apply a patch that:</p>
+        <ul>
+          <li>Modifies more than 3 files</li>
+          <li>Changes more than 50 lines across all files</li>
+          <li>Touches files outside the test directory or the identified failure file</li>
+          <li>Deletes any test functions</li>
+        </ul>
+
+        <h3>LLM output validation</h3>
+        <p>The GPT-4o response is parsed as structured JSON via function calling. If the model returns a malformed response or a patch that fails JSON schema validation, the attempt is retried up to <code>max_attempts</code> times before the event is abandoned.</p>
+
+        <h3>No auto-merge</h3>
+        <p>Nightingale only opens pull requests. It never merges. A human (or your existing branch protection rules and CI checks) decides whether a fix is acceptable.</p>
+
+        <div class="callout callout-warn">
+          <span class="callout-label">Branch protection recommended</span>
+          Configure branch protection on your main branch to require at least one reviewer approval and passing CI before merge. Nightingale PRs will then go through your standard review process.
+        </div>
+
+        <h3>Audit trail</h3>
+        <p>Every event is written to <code>nightingale.db</code> (SQLite). Each record includes the original failure, the diagnosis, the patch diff, sandbox output, confidence score, and the final outcome. Query it with any SQLite client to audit Nightingale's decisions.</p>
+
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">shell</span>
+            <button class="code-copy" onclick="copyCode(this)">Copy</button>
+          </div>
+          <div class="code-body"><pre><span class="cmt"># View last 10 repair attempts</span>
+sqlite3 nightingale.db <span class="str">"
+  SELECT id, timestamp, outcome, confidence
+  FROM repairs ORDER BY timestamp DESC LIMIT 10;
+"</span></pre></div>
+        </div>
+      </section>
+
+    </main>
+
+  </div>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="foot-inner">
+      <div class="foot-left">
+        <img src="logo.png" alt="" class="foot-logo" />
+        Nightingale SRE
+      </div>
+      <div class="foot-center">
+        <a href="index.html">Home</a>
+        <a href="docs.html">Docs</a>
+        <a href="https://github.com/aadi-joshi/nightingale-sre">GitHub</a>
+      </div>
+      <div class="foot-right">v1.0.0 &middot; MIT License</div>
+    </div>
+  </footer>
+
+  <!-- SIDEBAR TOGGLE (mobile) -->
+  <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle navigation">&#9776;</button>
+
+  <script>
+    const nav = document.getElementById('nav');
+    window.addEventListener('scroll', () => {
+      nav.classList.toggle('scrolled', window.scrollY > 40);
+    }, { passive: true });
+
+    const revealObs = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) { e.target.classList.add('vis'); revealObs.unobserve(e.target); }
+      });
+    }, { threshold: 0.06, rootMargin: '0px 0px -40px 0px' });
+    document.querySelectorAll('.rv').forEach(el => revealObs.observe(el));
+
+    const sections = document.querySelectorAll('.docs-section');
+    const sidebarLinks = document.querySelectorAll('.sidebar-group a');
+    const sectionObs = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          const id = e.target.id;
+          sidebarLinks.forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + id);
+          });
+        }
+      });
+    }, { threshold: 0.2, rootMargin: '-96px 0px -60% 0px' });
+    sections.forEach(s => sectionObs.observe(s));
+
+    function copyCode(btn) {
+      const code = btn.closest('.code-block').querySelector('pre').textContent;
+      navigator.clipboard.writeText(code).then(() => {
+        btn.textContent = 'Copied';
+        setTimeout(() => { btn.textContent = 'Copy'; }, 1800);
+      });
+    }
+
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    const sidebarOverlay = document.getElementById('sidebarOverlay');
+
+    function toggleSidebar() {
+      sidebar.classList.toggle('open');
+      sidebarOverlay.classList.toggle('show');
+    }
+
+    sidebarToggle.addEventListener('click', toggleSidebar);
+    sidebarOverlay.addEventListener('click', toggleSidebar);
+
+    sidebarLinks.forEach(a => {
+      a.addEventListener('click', () => {
+        if (window.innerWidth <= 768) {
+          sidebar.classList.remove('open');
+          sidebarOverlay.classList.remove('show');
+        }
+      });
+    });
+  </script>
+
+</body>
+</html>
