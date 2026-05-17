@@ -1,0 +1,2574 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nightingale SRE -- Autonomous CI Repair Agent</title>
+  <meta name="description"
+    content="A test fails. Nightingale diagnoses the root cause, applies a fix in an isolated sandbox, and opens a pull request. Under 10 seconds. No pager. No 3am call." />
+  <meta property="og:title" content="Nightingale SRE" />
+  <meta property="og:description"
+    content="Autonomous CI repair. A failing test becomes a pull request in under 10 seconds." />
+  <meta property="og:type" content="website" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@300;400;500&display=swap"
+    rel="stylesheet" />
+
+  <style>
+    :root {
+      --bg: #080d14;
+      --bg-alt: #0b1520;
+      --bg-panel: #0e1b28;
+      --bg-elevated: #111e2e;
+      --bg-card: #0f1c2a;
+
+      --accent: #00b8d4;
+      --accent-dim: rgba(0, 184, 212, 0.09);
+      --accent-glow: rgba(0, 184, 212, 0.05);
+      --accent-line: rgba(0, 184, 212, 0.18);
+
+      --green: #00d97e;
+      --green-dim: rgba(0, 217, 126, 0.09);
+      --amber: #ffab00;
+      --amber-dim: rgba(255, 171, 0, 0.09);
+      --red: #f25555;
+      --red-dim: rgba(242, 85, 85, 0.09);
+
+      --text: #cce0f0;
+      --text-2: #5c7e9e;
+      --text-3: #2c4862;
+
+      --border: #0d1e2e;
+      --border-2: #172e44;
+      --border-3: #1f3e5a;
+
+      --serif: 'DM Serif Display', Georgia, serif;
+      --sans: 'Inter', system-ui, -apple-system, sans-serif;
+      --mono: 'JetBrains Mono', 'IBM Plex Mono', Menlo, monospace;
+
+      --ease: cubic-bezier(0.4, 0, 0.2, 1);
+      --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+      --w: 1120px;
+    }
+
+    *,
+    *::before,
+    *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      font-size: 16px;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow-x: hidden;
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 9999;
+      opacity: 0.022;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+
+    ::selection {
+      background: rgba(0, 184, 212, 0.14);
+    }
+
+    /* ============================================================
+       NAV
+    ============================================================ */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 200;
+      background: rgba(8, 13, 20, 0.88);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.45s var(--ease);
+    }
+
+    nav.scrolled {
+      border-bottom-color: var(--border-2);
+    }
+
+    .nav-inner {
+      max-width: var(--w);
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+      padding: 0 40px;
+    }
+
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+    }
+
+    .nav-logo {
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--accent-line);
+      background: var(--accent-dim);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+
+    .nav-name {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 400;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+    }
+
+    .nav-links a {
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text-2);
+      text-decoration: none;
+      letter-spacing: 0.02em;
+      transition: color 0.25s;
+    }
+
+    .nav-links a:hover {
+      color: var(--text);
+    }
+
+    .nav-cta {
+      font-family: var(--mono) !important;
+      font-size: 11px !important;
+      letter-spacing: 0.10em !important;
+      color: var(--accent) !important;
+      border: 1px solid var(--accent-line);
+      padding: 7px 16px;
+      transition: all 0.25s !important;
+    }
+
+    .nav-cta:hover {
+      background: var(--accent-dim) !important;
+      border-color: var(--accent) !important;
+    }
+
+    /* ============================================================
+       HERO
+    ============================================================ */
+    .hero {
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 64px;
+      align-items: center;
+      max-width: var(--w);
+      margin: 0 auto;
+      padding: 130px 40px 80px;
+    }
+
+    .hero-content {
+      padding-right: 24px;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 400;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent);
+      padding: 7px 14px;
+      border: 1px solid var(--accent-line);
+      background: var(--accent-glow);
+      margin-bottom: 36px;
+    }
+
+    .badge-pulse {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: bpulse 2.4s ease infinite;
+    }
+
+    @keyframes bpulse {
+
+      0%,
+      100% {
+        opacity: 0.3;
+      }
+
+      50% {
+        opacity: 1;
+      }
+    }
+
+    .hero h1 {
+      font-family: var(--serif);
+      font-size: clamp(38px, 4.2vw, 64px);
+      font-weight: 400;
+      line-height: 1.1;
+      letter-spacing: -0.015em;
+      color: var(--text);
+      margin-bottom: 28px;
+    }
+
+    .hero h1 em {
+      font-style: italic;
+      color: var(--accent);
+    }
+
+    .hero-sub {
+      font-size: 16px;
+      font-weight: 300;
+      line-height: 1.88;
+      color: var(--text-2);
+      max-width: 420px;
+      margin-bottom: 44px;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 400;
+      text-decoration: none;
+      padding: 12px 24px;
+      letter-spacing: 0.02em;
+      transition: all 0.25s var(--ease);
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #080d14;
+      font-weight: 500;
+    }
+
+    .btn-primary:hover {
+      background: #13ccec;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 24px rgba(0, 184, 212, 0.22);
+    }
+
+    .btn-secondary {
+      border: 1px solid var(--border-3);
+      color: var(--text-2);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--text-2);
+      color: var(--text);
+    }
+
+    /* Hero terminal */
+    .hero-term {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-2);
+      font-family: var(--mono);
+      font-size: 12.5px;
+      line-height: 1.9;
+      overflow: hidden;
+    }
+
+    .term-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 12px 18px;
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .td {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .td-r {
+      background: #f25555;
+    }
+
+    .td-y {
+      background: #ffab00;
+    }
+
+    .td-g {
+      background: #00d97e;
+    }
+
+    .t-title {
+      flex: 1;
+      text-align: center;
+      font-size: 10.5px;
+      color: var(--text-3);
+      letter-spacing: 0.07em;
+    }
+
+    .term-body {
+      padding: 24px 24px 28px;
+    }
+
+    .tl {
+      opacity: 0;
+      transform: translateY(3px);
+    }
+
+    .tl.show {
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 0.4s var(--ease-out), transform 0.4s var(--ease-out);
+    }
+
+    .t-dim {
+      color: var(--text-3);
+    }
+
+    .t-ok {
+      color: var(--green);
+    }
+
+    .t-fail {
+      color: var(--red);
+    }
+
+    .t-cyan {
+      color: var(--accent);
+    }
+
+    .t-amber {
+      color: var(--amber);
+    }
+
+    .t-comment {
+      color: var(--text-3);
+    }
+
+    .t-cmd {
+      color: var(--text);
+    }
+
+    /* ============================================================
+       SECTION LABEL
+    ============================================================ */
+    .slabel {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 400;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 48px;
+    }
+
+    .slabel::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border-2);
+      max-width: 72px;
+    }
+
+    /* ============================================================
+       QUOTE
+    ============================================================ */
+    .quote-sec {
+      padding: 120px 40px;
+      position: relative;
+    }
+
+    .quote-sec::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 1px;
+      height: 72px;
+      background: linear-gradient(to bottom, var(--border-2), transparent);
+    }
+
+    .quote-inner {
+      max-width: 700px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .quote-inner blockquote {
+      font-family: var(--serif);
+      font-size: clamp(24px, 3vw, 40px);
+      font-weight: 400;
+      font-style: italic;
+      line-height: 1.4;
+      color: var(--text);
+      margin-bottom: 32px;
+    }
+
+    .quote-inner p {
+      font-size: 15px;
+      font-weight: 300;
+      line-height: 1.95;
+      color: var(--text-2);
+      max-width: 540px;
+      margin: 0 auto;
+    }
+
+    /* ============================================================
+       PROBLEM
+    ============================================================ */
+    .problem {
+      background: var(--bg-alt);
+      padding: 120px 40px;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .problem-inner {
+      max-width: var(--w);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 96px;
+      align-items: start;
+    }
+
+    .problem-text h2 {
+      font-family: var(--serif);
+      font-size: clamp(26px, 2.8vw, 42px);
+      font-weight: 400;
+      line-height: 1.18;
+      margin-bottom: 24px;
+    }
+
+    .problem-text p {
+      font-size: 15px;
+      font-weight: 300;
+      line-height: 1.9;
+      color: var(--text-2);
+      margin-bottom: 18px;
+    }
+
+    .cost-table {
+      border: 1px solid var(--border-2);
+      font-family: var(--mono);
+      font-size: 12.5px;
+      overflow: hidden;
+    }
+
+    .cost-header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      padding: 10px 18px;
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border);
+      font-size: 9.5px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-3);
+    }
+
+    .cost-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      padding: 10px 18px;
+      border-bottom: 1px solid var(--border);
+      align-items: center;
+    }
+
+    .cost-row:last-of-type {
+      border-bottom: none;
+    }
+
+    .cost-label {
+      color: var(--text-2);
+    }
+
+    .cost-time {
+      color: var(--amber);
+    }
+
+    .cost-total {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      padding: 12px 18px;
+      background: var(--bg-elevated);
+      border-top: 1px solid var(--border-2);
+    }
+
+    .cost-total-label {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    .cost-total-time {
+      color: var(--red);
+      font-weight: 500;
+    }
+
+    .comparison {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      margin-top: 20px;
+    }
+
+    .comp-col {
+      background: var(--bg-card);
+      padding: 22px 20px;
+    }
+
+    .comp-col-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+
+    .comp-col-label.bad {
+      color: var(--red);
+    }
+
+    .comp-col-label.good {
+      color: var(--green);
+    }
+
+    .comp-item {
+      font-size: 13px;
+      font-weight: 300;
+      color: var(--text-2);
+      line-height: 2;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .comp-item.bad::before {
+      content: '--';
+      color: var(--red);
+      font-family: var(--mono);
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    .comp-item.good::before {
+      content: '+';
+      color: var(--green);
+      font-family: var(--mono);
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    /* ============================================================
+       DEMO SECTION
+    ============================================================ */
+    .demo-section {
+      padding: 140px 40px;
+    }
+
+    .demo-inner {
+      max-width: var(--w);
+      margin: 0 auto;
+    }
+
+    .demo-header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: end;
+      margin-bottom: 52px;
+    }
+
+    .demo-header h2 {
+      font-family: var(--serif);
+      font-size: clamp(26px, 2.8vw, 42px);
+      font-weight: 400;
+      line-height: 1.18;
+    }
+
+    .demo-elapsed-wrap {
+      text-align: right;
+    }
+
+    .demo-elapsed-num {
+      font-family: var(--mono);
+      font-size: 36px;
+      font-weight: 300;
+      color: var(--accent);
+      letter-spacing: -0.02em;
+      line-height: 1;
+    }
+
+    .demo-elapsed-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-top: 6px;
+    }
+
+    .demo-steps-bar {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 3px;
+      margin-bottom: 28px;
+    }
+
+    .dsb {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 11px 4px 9px;
+      border-top: 2px solid var(--border-2);
+      text-align: center;
+      transition: border-color 0.25s;
+    }
+
+    .dsb.active {
+      border-top-color: var(--accent);
+    }
+
+    .dsb.done {
+      border-top-color: var(--green);
+    }
+
+    .dsb-num {
+      display: block;
+      font-family: var(--mono);
+      font-size: 9.5px;
+      letter-spacing: 0.08em;
+      color: var(--text-3);
+      margin-bottom: 4px;
+    }
+
+    .dsb-lbl {
+      display: block;
+      font-size: 11px;
+      color: var(--text-3);
+    }
+
+    .dsb.active .dsb-num,
+    .dsb.active .dsb-lbl {
+      color: var(--accent);
+    }
+
+    .dsb.done .dsb-lbl {
+      color: var(--green);
+    }
+
+    .demo-stage {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 20px;
+      min-height: 360px;
+    }
+
+    .stage-info {
+      border: 1px solid var(--border-2);
+      padding: 28px 24px;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-alt);
+    }
+
+    .stage-step-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 20px;
+    }
+
+    .stage-title {
+      font-family: var(--serif);
+      font-size: 22px;
+      font-weight: 400;
+      line-height: 1.3;
+      color: var(--text);
+      margin-bottom: 14px;
+    }
+
+    .stage-desc {
+      font-size: 13.5px;
+      font-weight: 300;
+      line-height: 1.88;
+      color: var(--text-2);
+      flex: 1;
+    }
+
+    .stage-status {
+      margin-top: 24px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-2);
+    }
+
+    .sdot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .sdot.wait {
+      background: var(--text-3);
+    }
+
+    .sdot.running {
+      background: var(--amber);
+      animation: bpulse 1.1s ease infinite;
+    }
+
+    .sdot.fail {
+      background: var(--red);
+    }
+
+    .sdot.done {
+      background: var(--green);
+    }
+
+    .stage-panel {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-2);
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.85;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .stage-panel-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 16px;
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .panel-lbl {
+      font-size: 10px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-left: 4px;
+    }
+
+    .stage-panel-body {
+      padding: 20px;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .panel-slide {
+      display: none;
+    }
+
+    .panel-slide.active {
+      display: block;
+    }
+
+    /* Demo controls */
+    .demo-controls {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .dctl-btn {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      background: none;
+      border: 1px solid var(--border-3);
+      color: var(--text-2);
+      padding: 9px 18px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .dctl-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .dctl-play {
+      background: var(--accent-dim);
+      border-color: var(--accent-line);
+      color: var(--accent);
+    }
+
+    .dctl-play:hover {
+      background: var(--accent);
+      color: #080d14;
+    }
+
+    .demo-dot-row {
+      display: flex;
+      gap: 6px;
+      flex: 1;
+      justify-content: center;
+    }
+
+    .demo-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--border-2);
+      cursor: pointer;
+      transition: background 0.25s;
+    }
+
+    .demo-dot.active {
+      background: var(--accent);
+    }
+
+    .demo-dot.done {
+      background: var(--green);
+    }
+
+    /* ============================================================
+       CONFIDENCE
+    ============================================================ */
+    .confidence {
+      background: var(--bg-alt);
+      padding: 140px 40px;
+      border-top: 1px solid var(--border);
+    }
+
+    .confidence-inner {
+      max-width: var(--w);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1.35fr;
+      gap: 100px;
+      align-items: center;
+    }
+
+    .conf-text h2 {
+      font-family: var(--serif);
+      font-size: clamp(26px, 2.8vw, 42px);
+      font-weight: 400;
+      line-height: 1.18;
+      margin-bottom: 24px;
+    }
+
+    .conf-text p {
+      font-size: 15px;
+      font-weight: 300;
+      line-height: 1.9;
+      color: var(--text-2);
+      margin-bottom: 16px;
+    }
+
+    .conf-threshold-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--amber);
+      margin-top: 16px;
+      padding: 10px 16px;
+      border: 1px solid rgba(255, 171, 0, 0.18);
+      background: var(--amber-dim);
+    }
+
+    .conf-formula {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-2);
+      padding: 28px;
+    }
+
+    .cf-title {
+      font-family: var(--mono);
+      font-size: 9.5px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 24px;
+    }
+
+    .cf-row {
+      display: grid;
+      grid-template-columns: 40px 1fr 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .cf-row:last-child {
+      border-bottom: none;
+    }
+
+    .cf-wt {
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--accent);
+    }
+
+    .cf-name {
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    .cf-detail {
+      font-size: 12px;
+      color: var(--text-3);
+    }
+
+    .cf-bar-track {
+      height: 3px;
+      background: var(--border-2);
+      width: 60px;
+    }
+
+    .cf-bar-fill {
+      height: 100%;
+      background: var(--accent);
+    }
+
+    .conf-screenshot {
+      margin-top: 32px;
+      border: 1px solid var(--border-2);
+      overflow: hidden;
+    }
+
+    .conf-screenshot img {
+      width: 100%;
+      display: block;
+    }
+
+    .conf-screenshot-caption {
+      padding: 12px 16px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-3);
+      border-top: 1px solid var(--border);
+      letter-spacing: 0.03em;
+    }
+
+    /* ============================================================
+       DASHBOARD SCREENSHOTS
+    ============================================================ */
+    .dashview {
+      padding: 140px 40px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .dashview-inner {
+      max-width: var(--w);
+      margin: 0 auto;
+    }
+
+    .dashview-inner h2 {
+      font-family: var(--serif);
+      font-size: clamp(26px, 2.8vw, 42px);
+      font-weight: 400;
+      line-height: 1.18;
+      margin-bottom: 14px;
+    }
+
+    .dashview-sub {
+      font-size: 15px;
+      font-weight: 300;
+      color: var(--text-2);
+      max-width: 500px;
+      line-height: 1.88;
+      margin-bottom: 56px;
+    }
+
+    .dash-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .dash-ss {
+      border: 1px solid var(--border-2);
+      overflow: hidden;
+    }
+
+    .dash-ss img {
+      width: 100%;
+      display: block;
+    }
+
+    .dash-ss-cap {
+      padding: 14px 16px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-3);
+      border-top: 1px solid var(--border);
+      letter-spacing: 0.03em;
+    }
+
+    /* ============================================================
+       ARCHITECTURE
+    ============================================================ */
+    .arch {
+      background: var(--bg-alt);
+      padding: 140px 40px;
+      border-top: 1px solid var(--border);
+    }
+
+    .arch-inner {
+      max-width: var(--w);
+      margin: 0 auto;
+    }
+
+    .arch-header {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 80px;
+      margin-bottom: 64px;
+      align-items: end;
+    }
+
+    .arch-header h2 {
+      font-family: var(--serif);
+      font-size: clamp(26px, 2.8vw, 42px);
+      font-weight: 400;
+      line-height: 1.18;
+    }
+
+    .arch-header p {
+      font-size: 15px;
+      font-weight: 300;
+      line-height: 1.9;
+      color: var(--text-2);
+    }
+
+    .arch-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+    }
+
+    .arch-cell {
+      background: var(--bg-alt);
+      padding: 28px 24px;
+      transition: background 0.3s;
+    }
+
+    .arch-cell:hover {
+      background: var(--bg-elevated);
+    }
+
+    .arch-icon {
+      font-family: var(--mono);
+      font-size: 14px;
+      color: var(--accent);
+      margin-bottom: 14px;
+      display: block;
+    }
+
+    .arch-cell h4 {
+      font-size: 13.5px;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 8px;
+      letter-spacing: 0.01em;
+    }
+
+    .arch-cell p {
+      font-size: 12.5px;
+      font-weight: 300;
+      line-height: 1.7;
+      color: var(--text-2);
+    }
+
+    .arch-pipeline {
+      margin-top: 36px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-2);
+      padding: 28px;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 2.2;
+      color: var(--text-2);
+      overflow-x: auto;
+    }
+
+    /* ============================================================
+       METRICS
+    ============================================================ */
+    .metrics-strip {
+      padding: 0;
+    }
+
+    .metrics-inner {
+      max-width: var(--w);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .metric {
+      background: var(--bg);
+      padding: 48px 32px;
+      text-align: center;
+    }
+
+    .metric-val {
+      font-family: var(--serif);
+      font-size: 48px;
+      font-weight: 400;
+      color: var(--text);
+      line-height: 1;
+      margin-bottom: 10px;
+    }
+
+    .metric-val .unit {
+      font-size: 26px;
+    }
+
+    .metric-lab {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-3);
+    }
+
+    /* ============================================================
+       QUICKSTART
+    ============================================================ */
+    .quickstart {
+      padding: 140px 40px;
+    }
+
+    .qs-inner {
+      max-width: var(--w);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1.4fr;
+      gap: 100px;
+      align-items: start;
+    }
+
+    .qs-text h2 {
+      font-family: var(--serif);
+      font-size: clamp(26px, 2.8vw, 42px);
+      font-weight: 400;
+      line-height: 1.18;
+      margin-bottom: 20px;
+    }
+
+    .qs-text p {
+      font-size: 15px;
+      font-weight: 300;
+      line-height: 1.9;
+      color: var(--text-2);
+    }
+
+    .qs-steps {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .qs-step {
+      display: grid;
+      grid-template-columns: 36px 1fr;
+      gap: 20px;
+      padding: 28px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .qs-step:last-child {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .qs-num {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text-3);
+      letter-spacing: 0.08em;
+      padding-top: 2px;
+    }
+
+    .qs-body h4 {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 10px;
+    }
+
+    .qs-body p {
+      font-size: 13px;
+      font-weight: 300;
+      color: var(--text-2);
+      line-height: 1.8;
+      margin-bottom: 12px;
+    }
+
+    .code-block {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-2);
+      padding: 14px 18px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text-2);
+      line-height: 1.9;
+      white-space: pre;
+      overflow-x: auto;
+      position: relative;
+    }
+
+    .code-block .cb-lbl {
+      position: absolute;
+      top: 0;
+      right: 0;
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      padding: 4px 10px;
+      background: var(--bg-elevated);
+      border-bottom-left-radius: 0;
+      border-left: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .cb-k {
+      color: var(--accent);
+    }
+
+    .cb-s {
+      color: var(--green);
+    }
+
+    .cb-c {
+      color: var(--text-3);
+    }
+
+    /* ============================================================
+       PRODUCTION DEPLOY
+    ============================================================ */
+    .deploy {
+      background: var(--bg-alt);
+      padding: 140px 40px;
+      border-top: 1px solid var(--border);
+    }
+
+    .deploy-inner {
+      max-width: var(--w);
+      margin: 0 auto;
+    }
+
+    .deploy-inner h2 {
+      font-family: var(--serif);
+      font-size: clamp(26px, 2.8vw, 42px);
+      font-weight: 400;
+      line-height: 1.18;
+      margin-bottom: 14px;
+    }
+
+    .deploy-sub {
+      font-size: 15px;
+      font-weight: 300;
+      color: var(--text-2);
+      max-width: 520px;
+      line-height: 1.88;
+      margin-bottom: 64px;
+    }
+
+    .deploy-steps {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+    }
+
+    .dp-step {
+      background: var(--bg-alt);
+      padding: 32px 24px;
+    }
+
+    .dp-num {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 14px;
+    }
+
+    .dp-title {
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 12px;
+    }
+
+    .dp-body {
+      font-size: 13px;
+      font-weight: 300;
+      line-height: 1.8;
+      color: var(--text-2);
+    }
+
+    .dp-code {
+      margin-top: 14px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      padding: 10px 14px;
+      font-family: var(--mono);
+      font-size: 11.5px;
+      color: var(--accent);
+      line-height: 1.7;
+      white-space: pre;
+    }
+
+    /* ============================================================
+       CTA
+    ============================================================ */
+    .cta-sec {
+      padding: 180px 40px;
+      text-align: center;
+      position: relative;
+    }
+
+    .cta-sec::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 1px;
+      height: 80px;
+      background: linear-gradient(to bottom, var(--border-2), transparent);
+    }
+
+    .cta-sec h2 {
+      font-family: var(--serif);
+      font-size: clamp(30px, 3.8vw, 54px);
+      font-weight: 400;
+      line-height: 1.18;
+      color: var(--text);
+      margin-bottom: 20px;
+      max-width: 520px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .cta-sec p {
+      font-size: 15px;
+      font-weight: 300;
+      color: var(--text-2);
+      margin-bottom: 44px;
+    }
+
+    .cta-actions {
+      display: flex;
+      gap: 14px;
+      justify-content: center;
+      align-items: center;
+    }
+
+    /* ============================================================
+       FOOTER
+    ============================================================ */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 36px 40px;
+    }
+
+    .foot-inner {
+      max-width: var(--w);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 32px;
+    }
+
+    .foot-left {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-3);
+      letter-spacing: 0.06em;
+    }
+
+    .foot-center {
+      display: flex;
+      gap: 28px;
+    }
+
+    .foot-center a {
+      font-size: 12.5px;
+      color: var(--text-2);
+      text-decoration: none;
+      letter-spacing: 0.02em;
+      transition: color 0.2s;
+    }
+
+    .foot-center a:hover {
+      color: var(--accent);
+    }
+
+    .foot-right {
+      text-align: right;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-3);
+      letter-spacing: 0.04em;
+    }
+
+    /* ============================================================
+       SCROLL REVEAL
+    ============================================================ */
+    .rv {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.72s var(--ease-out), transform 0.72s var(--ease-out);
+    }
+
+    .rv.vis {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .rv-d1 {
+      transition-delay: 0.10s;
+    }
+
+    .rv-d2 {
+      transition-delay: 0.22s;
+    }
+
+    .rv-d3 {
+      transition-delay: 0.34s;
+    }
+
+    .rv-d4 {
+      transition-delay: 0.46s;
+    }
+
+    /* ============================================================
+       RESPONSIVE
+    ============================================================ */
+    @media (max-width: 1024px) {
+      .hero {
+        grid-template-columns: 1fr;
+        min-height: auto;
+        padding-top: 140px;
+        gap: 44px;
+      }
+
+      .hero-term {
+        max-width: 600px;
+      }
+
+      .problem-inner {
+        grid-template-columns: 1fr;
+        gap: 48px;
+      }
+
+      .demo-stage {
+        grid-template-columns: 1fr;
+      }
+
+      .confidence-inner {
+        grid-template-columns: 1fr;
+        gap: 56px;
+      }
+
+      .arch-header {
+        grid-template-columns: 1fr;
+        gap: 20px;
+      }
+
+      .arch-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .qs-inner {
+        grid-template-columns: 1fr;
+        gap: 48px;
+      }
+
+      .deploy-steps {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .dash-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .demo-steps-bar {
+        grid-template-columns: repeat(4, 1fr);
+      }
+    }
+
+    @media (max-width: 680px) {
+      .nav-inner {
+        padding: 0 20px;
+      }
+
+      .nav-name {
+        display: none;
+      }
+
+      .hero {
+        padding: 120px 20px 60px;
+      }
+
+      .hero h1 {
+        font-size: 34px;
+      }
+
+      .hero-actions {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+      }
+
+      .quote-sec,
+      .problem,
+      .demo-section,
+      .confidence,
+      .dashview,
+      .arch,
+      .quickstart,
+      .deploy,
+      .cta-sec {
+        padding-left: 20px;
+        padding-right: 20px;
+      }
+
+      .metrics-inner {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .arch-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .deploy-steps {
+        grid-template-columns: 1fr;
+      }
+
+      .foot-inner {
+        grid-template-columns: 1fr;
+        text-align: center;
+        gap: 16px;
+      }
+
+      .foot-right,
+      .foot-center {
+        text-align: center;
+        justify-content: center;
+      }
+
+      .demo-steps-bar {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 4px;
+      }
+
+      .demo-header {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+
+      .demo-controls {
+        flex-wrap: wrap;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- NAV -->
+  <nav id="main-nav">
+    <div class="nav-inner">
+      <a href="#" class="nav-brand">
+        <span class="nav-logo">N</span>
+        <span class="nav-name">Nightingale SRE</span>
+      </a>
+      <div class="nav-links">
+        <a href="#demo">Demo</a>
+        <a href="#confidence">How it scores</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#quickstart">Quick Start</a>
+        <a href="https://github.com/aadi-joshi/nightingale-sre" class="nav-cta" target="_blank"
+          rel="noopener">GitHub &nearr;</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-content">
+      <div class="hero-badge rv">
+        <span class="badge-pulse"></span>
+        Autonomous SRE Agent
+      </div>
+      <h1 class="rv rv-d1">CI failures, fixed <em>before</em> anyone wakes up.</h1>
+      <p class="hero-sub rv rv-d2">
+        A test fails on your GitHub Actions. Nightingale receives the webhook,
+        loads the failing file, calls GPT-4o for a typed fix plan, runs the full
+        test suite in an isolated sandbox, and opens a pull request. Under 10
+        seconds. No pager. No context switch.
+      </p>
+      <div class="hero-actions rv rv-d3">
+        <a href="#demo" class="btn btn-primary">See it work &rarr;</a>
+        <a href="https://github.com/aadi-joshi/nightingale-sre" class="btn btn-secondary" target="_blank"
+          rel="noopener">View on GitHub</a>
+      </div>
+    </div>
+
+    <div class="hero-term rv rv-d2" role="img" aria-label="Nightingale pipeline output">
+      <div class="term-bar">
+        <span class="td td-r"></span>
+        <span class="td td-y"></span>
+        <span class="td td-g"></span>
+        <span class="t-title">nightingale -- pipeline</span>
+        <span style="width:27px"></span>
+      </div>
+      <div class="term-body">
+        <div class="tl" data-d="350"><span class="t-dim">[02:47:13] </span><span
+            class="t-fail">FAILURE</span><span class="t-dim"> workflow_run &rarr; webhook received</span></div>
+        <div class="tl" data-d="1000"><span class="t-dim">[02:47:13] </span><span
+            class="t-cyan">context</span><span class="t-dim">     test_app.py, app.py loaded</span></div>
+        <div class="tl" data-d="1700"><span class="t-dim">[02:47:14] </span><span
+            class="t-cyan">gpt-4o</span><span class="t-dim">      analyzing failure...</span></div>
+        <div class="tl" data-d="2500"><span class="t-dim">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><span
+            class="t-comment">root cause: wrong assertion value</span></div>
+        <div class="tl" data-d="3200"><span class="t-dim">[02:47:15] </span><span
+            class="t-cyan">sandbox</span><span class="t-dim">     running pytest in isolation...</span></div>
+        <div class="tl" data-d="4000"><span class="t-dim">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><span
+            class="t-ok">4 passed</span><span class="t-dim"> in 0.12s -- fix verified</span></div>
+        <div class="tl" data-d="4700"><span class="t-dim">[02:47:16] </span><span
+            class="t-cyan">confidence</span><span class="t-dim">  0.97 &gt; 0.85 threshold</span></div>
+        <div class="tl" data-d="5500"><span class="t-dim">[02:47:21] </span><span class="t-ok">PR #42
+            opened</span><span class="t-dim"> &nbsp;"Fix test_calculate_total assertion"</span></div>
+        <div class="tl" data-d="6100"><span class="t-dim">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><span
+            class="t-comment">elapsed: 8.3s &nbsp;|&nbsp; no human required</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUOTE -->
+  <section class="quote-sec">
+    <div class="quote-inner">
+      <blockquote class="rv">"Most CI failures are not interesting."</blockquote>
+      <p class="rv rv-d1">A wrong assertion. A class imported with the wrong casing. An off-by-one that only shows in
+        tests. These take a senior engineer two minutes to fix and cost an hour of their day once you add the
+        notification, context switch, branch, PR, and review wait. Nightingale handles the two-minute fixes so engineers
+        only see the ones that actually need them.</p>
+    </div>
+  </section>
+
+  <!-- PROBLEM -->
+  <section class="problem">
+    <div class="problem-inner">
+      <div class="problem-text rv">
+        <div class="slabel">The real cost</div>
+        <h2>Two minutes of work. One hour of overhead.</h2>
+        <p>The fix itself is almost never the slow part. Every routine CI failure pulls a senior engineer out of
+          deep work, forces them to context-switch, open a branch, wait for review, and wait for CI to re-run.
+        </p>
+        <p>That overhead compounds. Ten incidents a week at 77 minutes each is 770 minutes of senior engineering time
+          spent on work a machine could do.</p>
+      </div>
+
+      <div class="rv rv-d1">
+        <div class="cost-table">
+          <div class="cost-header">
+            <span>Without Nightingale</span>
+            <span>Time</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">Notification arrives, context switch</span>
+            <span class="cost-time">15 min</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">Read logs, find root cause</span>
+            <span class="cost-time">20 min</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">Write the actual fix</span>
+            <span class="cost-time">2 min</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">Branch, commit, open PR</span>
+            <span class="cost-time">10 min</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">Wait for review + CI re-run</span>
+            <span class="cost-time">30+ min</span>
+          </div>
+          <div class="cost-total">
+            <span class="cost-total-label">Total per incident</span>
+            <span class="cost-total-time">77+ min</span>
+          </div>
+        </div>
+        <div class="comparison">
+          <div class="comp-col">
+            <div class="comp-col-label bad">Without Nightingale</div>
+            <div class="comp-item bad">Engineer paged at 3am</div>
+            <div class="comp-item bad">Senior time on routine work</div>
+            <div class="comp-item bad">Blocked until human acts</div>
+            <div class="comp-item bad">77+ minutes per failure</div>
+          </div>
+          <div class="comp-col">
+            <div class="comp-col-label good">With Nightingale</div>
+            <div class="comp-item good">PR waiting in the morning</div>
+            <div class="comp-item good">Engineer reviews, not triages</div>
+            <div class="comp-item good">Pipeline unblocked in seconds</div>
+            <div class="comp-item good">Under 10 seconds per failure</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- INTERACTIVE DEMO -->
+  <section class="demo-section" id="demo">
+    <div class="demo-inner">
+      <div class="demo-header rv">
+        <div>
+          <div class="slabel">Interactive demo</div>
+          <h2>10 seconds. Zero pager noise.</h2>
+        </div>
+        <div class="demo-elapsed-wrap">
+          <div class="demo-elapsed-num" id="demo-elapsed">0.0s</div>
+          <div class="demo-elapsed-label">pipeline elapsed</div>
+        </div>
+      </div>
+
+      <div class="demo-steps-bar rv rv-d1">
+        <button class="dsb active" data-step="0">
+          <span class="dsb-num">01</span>
+          <span class="dsb-lbl">Push</span>
+        </button>
+        <button class="dsb" data-step="1">
+          <span class="dsb-num">02</span>
+          <span class="dsb-lbl">CI Fails</span>
+        </button>
+        <button class="dsb" data-step="2">
+          <span class="dsb-num">03</span>
+          <span class="dsb-lbl">Webhook</span>
+        </button>
+        <button class="dsb" data-step="3">
+          <span class="dsb-num">04</span>
+          <span class="dsb-lbl">GPT-4o</span>
+        </button>
+        <button class="dsb" data-step="4">
+          <span class="dsb-num">05</span>
+          <span class="dsb-lbl">Sandbox</span>
+        </button>
+        <button class="dsb" data-step="5">
+          <span class="dsb-num">06</span>
+          <span class="dsb-lbl">Confidence</span>
+        </button>
+        <button class="dsb" data-step="6">
+          <span class="dsb-num">07</span>
+          <span class="dsb-lbl">PR Opened</span>
+        </button>
+      </div>
+
+      <div class="demo-stage rv rv-d2">
+        <div class="stage-info">
+          <div>
+            <div class="stage-step-label" id="si-step">STEP 01 / 07</div>
+            <div class="stage-title" id="si-title">Developer pushes a commit</div>
+            <div class="stage-desc" id="si-desc">A commit lands on main at 2:47 AM. GitHub Actions
+              runs the test suite automatically on every push.</div>
+          </div>
+          <div class="stage-status">
+            <span class="sdot wait" id="si-dot"></span>
+            <span id="si-status">Waiting for CI result</span>
+          </div>
+        </div>
+
+        <div class="stage-panel">
+          <div class="stage-panel-bar">
+            <span class="td td-r"></span>
+            <span class="td td-y"></span>
+            <span class="td td-g"></span>
+            <span class="panel-lbl" id="panel-label">git push</span>
+          </div>
+          <div class="stage-panel-body">
+
+            <div class="panel-slide active" id="ps-0"><span class="t-dim">$ git push origin main
+</span><span class="t-dim">Enumerating objects: 5, done.
+Counting objects: 100% (5/5), done.
+Writing objects: 100% (3/3), done.
+
+remote: Resolving deltas: 100% (1/1), done.
+To github.com:aadi-joshi/demo-repo.git
+   ae752ed..3f9a2c1  main -&gt; main
+
+</span><span class="t-comment"># commit 3f9a2c1: "fix: update calculation logic"
+# branch: main
+# time: 02:47:13 AM
+# github actions: workflow triggered automatically</span></div>
+
+            <div class="panel-slide" id="ps-1"><span class="t-dim">$ pytest demo_repo/test_app.py -v
+collected 4 items
+
+</span><span class="t-ok">PASSED</span><span class="t-dim"> test_app.py::test_format_price
+</span><span class="t-ok">PASSED</span><span class="t-dim"> test_app.py::test_apply_discount
+</span><span class="t-ok">PASSED</span><span class="t-dim"> test_app.py::test_empty_cart
+</span><span class="t-fail">FAILED</span><span class="t-dim"> test_app.py::test_calculate_total
+
+</span><span class="t-fail">FAILURES
+</span><span class="t-dim">test_calculate_total
+  AssertionError: assert 15 == 10
+    |
+    +-- result = 15  (sum of items [5, 5, 5])
+       expected = 10  (wrong value in test)
+
+</span><span class="t-fail">1 failed</span><span class="t-dim">, 3 passed in 0.21s
+
+github actions: workflow_run conclusion = "failure"
+github actions: firing webhook to nightingale</span></div>
+
+            <div class="panel-slide" id="ps-2"><span class="t-dim">POST /webhook/github  HTTP/1.1
+X-GitHub-Event: workflow_run
+
+</span><span class="t-cyan">{
+  "action": "completed",
+  "workflow_run": {
+    "name": "CI",
+    "conclusion": </span><span class="t-fail">"failure"</span><span class="t-cyan">,
+    "head_branch": "main",
+    "head_sha":    "3f9a2c1e8b4d...",
+    "head_commit": {
+      "message": "fix: update calculation logic",
+      "author":  "aadi-joshi"
+    }
+  },
+  "repository": {
+    "full_name": "aadi-joshi/demo-repo",
+    "clone_url": "https://github.com/..."
+  }
+}</span><span class="t-dim">
+
+</span><span class="t-ok">HTTP 200 OK</span><span class="t-dim">
+nightingale: incident queued -- INC-20240517-001
+nightingale: pipeline starting...</span></div>
+
+            <div class="panel-slide" id="ps-3"><span class="t-dim">[NIGHTINGALE] Loading context
+  &gt; reading demo_repo/test_app.py    47 lines
+  &gt; reading demo_repo/app.py         89 lines
+  &gt; git log: 3 recent commits loaded
+  &gt; failure: test_calculate_total
+
+</span><span class="t-amber">[GPT-4o] Reasoning about fix (attempt 1/3)
+
+</span><span class="t-comment">Root cause:
+  The test assertion is incorrect.
+  calculate_total([5, 5, 5], tax=0.0) returns
+  15 correctly -- sum of the three items.
+  The test expects 10, which is wrong.
+  The implementation is not at fault.
+
+Proposed fix:
+  File: demo_repo/test_app.py
+  Line 23:
+    - assert result == 10
+    + assert result == 15
+
+Rationale:
+  The assertion value was likely set during early
+  development when the test input was different.
+  One line change. No logic change required.
+
+</span><span class="t-ok">[GPT-4o] Fix plan generated</span></div>
+
+            <div class="panel-slide" id="ps-4"><span class="t-dim">[SANDBOX] Setting up isolated environment
+  &gt; copy repo to /tmp/.nightingale/sandbox_8a3f/
+  &gt; sha256 original: a3f9c2d1e8b44f...
+  &gt; applying fix to test_app.py
+
+</span><span class="t-dim">  diff:
+</span><span class="t-fail">  -  assert result == 10</span><span class="t-dim">
+</span><span class="t-ok">  +  assert result == 15</span><span class="t-dim">
+
+[SANDBOX] Running: pytest demo_repo/ -v
+
+</span><span class="t-ok">PASSED</span><span class="t-dim"> test_app.py::test_format_price
+</span><span class="t-ok">PASSED</span><span class="t-dim"> test_app.py::test_apply_discount
+</span><span class="t-ok">PASSED</span><span class="t-dim"> test_app.py::test_empty_cart
+</span><span class="t-ok">PASSED</span><span class="t-dim"> test_app.py::test_calculate_total
+
+</span><span class="t-ok">4 passed in 0.12s -- all tests pass</span><span class="t-dim">
+
+[SANDBOX] sha256 original: a3f9c2d1e8b44f... (verified)
+[SANDBOX] original untouched. fix is safe.</span></div>
+
+            <div class="panel-slide" id="ps-5"><span class="t-dim">CONFIDENCE SCORING  --  INC-20240517-001
+</span><span class="t-dim">--------------------------------------------------
+</span><span id="cline-1" class="t-dim">  test_pass_ratio     35%    </span><span id="cbar-1"></span><span
+                id="cv-1"></span><span class="t-dim">
+</span><span id="cline-2" class="t-dim">  blast_radius        25%    </span><span id="cbar-2"></span><span
+                id="cv-2"></span><span class="t-dim">
+</span><span id="cline-3" class="t-dim">  attempt_penalty     15%    </span><span id="cbar-3"></span><span
+                id="cv-3"></span><span class="t-dim">
+</span><span id="cline-4" class="t-dim">  risk_modifier       15%    </span><span id="cbar-4"></span><span
+                id="cv-4"></span><span class="t-dim">
+</span><span id="cline-5" class="t-dim">  self_consistency    10%    </span><span id="cbar-5"></span><span
+                id="cv-5"></span><span class="t-dim">
+--------------------------------------------------
+  WEIGHTED SCORE      </span><span id="conf-score" class="t-dim"></span><span class="t-dim">
+  THRESHOLD           0.85
+  DECISION            </span><span id="conf-decision" class="t-dim"></span></div>
+
+            <div class="panel-slide" id="ps-6"><span class="t-dim">PULL REQUEST CREATED
+</span><span class="t-dim">======================================================
+</span><span class="t-cyan">#42</span><span class="t-dim">  Fix test_calculate_total assertion value
+
+Branch:  </span><span class="t-amber">nightingale/fix/test-calculate-total-3f9a2c1</span><span class="t-dim">
+Target:  main
+Author:  nightingale[bot]
+
+Root cause:
+  test_calculate_total expected 10 but
+  calculate_total([5, 5, 5], tax=0.0) correctly
+  returns 15. The implementation is not at fault.
+
+Changes:
+  demo_repo/test_app.py  |  1 insertion, 1 deletion
+</span><span class="t-fail">  - assert result == 10</span><span class="t-dim">
+</span><span class="t-ok">  + assert result == 15</span><span class="t-dim">
+
+Confidence: </span><span class="t-ok">0.97</span><span class="t-dim"> (threshold 0.85)
+======================================================
+</span><span class="t-ok">Auto-resolved in 8.3s.</span><span class="t-dim">
+Nightingale opened this PR. It will not merge it.
+Human review and approval required before merge.</span></div>
+
+          </div>
+        </div>
+      </div>
+
+      <div class="demo-controls rv rv-d3">
+        <button class="dctl-btn" id="btn-prev" onclick="demoNav(-1)">&larr; Prev</button>
+        <div class="demo-dot-row" id="demo-dots">
+          <span class="demo-dot active" onclick="demoGo(0)"></span>
+          <span class="demo-dot" onclick="demoGo(1)"></span>
+          <span class="demo-dot" onclick="demoGo(2)"></span>
+          <span class="demo-dot" onclick="demoGo(3)"></span>
+          <span class="demo-dot" onclick="demoGo(4)"></span>
+          <span class="demo-dot" onclick="demoGo(5)"></span>
+          <span class="demo-dot" onclick="demoGo(6)"></span>
+        </div>
+        <button class="dctl-btn" id="btn-next" onclick="demoNav(1)">Next &rarr;</button>
+        <button class="dctl-btn dctl-play" id="btn-play" onclick="demoTogglePlay()">&#9654; Auto-play</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONFIDENCE SCORING -->
+  <section class="confidence" id="confidence">
+    <div class="confidence-inner">
+      <div class="conf-text rv">
+        <div class="slabel">Scoring</div>
+        <h2>Every resolution decision has a number attached.</h2>
+        <p>Five weighted factors determine whether Nightingale acts or escalates. The formula is transparent. Every
+          factor is logged. There is no black box.</p>
+        <p>Below 85%, nothing is written. The fix plan and full incident report are generated anyway and sent to the
+          engineer, so even escalations are useful.</p>
+        <div class="conf-threshold-badge">
+          Resolve threshold: 0.85 &nbsp;|&nbsp; adjustable in config.yaml
+        </div>
+      </div>
+
+      <div class="rv rv-d1">
+        <div class="conf-formula">
+          <div class="cf-title">Confidence formula -- weighted 5-factor score</div>
+          <div class="cf-row">
+            <span class="cf-wt">35%</span>
+            <span class="cf-name">test_pass_ratio</span>
+            <span class="cf-detail">All tests pass in sandbox?</span>
+            <div class="cf-bar-track">
+              <div class="cf-bar-fill" style="width: 100%"></div>
+            </div>
+          </div>
+          <div class="cf-row">
+            <span class="cf-wt">25%</span>
+            <span class="cf-name">blast_radius</span>
+            <span class="cf-detail">Fewer files changed = safer</span>
+            <div class="cf-bar-track">
+              <div class="cf-bar-fill" style="width: 71%"></div>
+            </div>
+          </div>
+          <div class="cf-row">
+            <span class="cf-wt">15%</span>
+            <span class="cf-name">attempt_penalty</span>
+            <span class="cf-detail">First attempt scores higher</span>
+            <div class="cf-bar-track">
+              <div class="cf-bar-fill" style="width: 43%"></div>
+            </div>
+          </div>
+          <div class="cf-row">
+            <span class="cf-wt">15%</span>
+            <span class="cf-name">risk_modifier</span>
+            <span class="cf-detail">gpt-4o-mini classifies file risk</span>
+            <div class="cf-bar-track">
+              <div class="cf-bar-fill" style="width: 43%"></div>
+            </div>
+          </div>
+          <div class="cf-row">
+            <span class="cf-wt">10%</span>
+            <span class="cf-name">self_consistency</span>
+            <span class="cf-detail">Model's stated confidence</span>
+            <div class="cf-bar-track">
+              <div class="cf-bar-fill" style="width: 29%"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="conf-screenshot">
+          <img
+            src="https://raw.githubusercontent.com/aadi-joshi/nightingale-sre/master/terminal_2.png"
+            alt="Confidence breakdown in the Nightingale terminal" loading="lazy" />
+          <div class="conf-screenshot-caption">
+            Confidence breakdown printed inline. The decision, score, and per-factor values are visible on every run.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DASHBOARD -->
+  <section class="dashview" id="dashboard">
+    <div class="dashview-inner">
+      <div class="slabel rv">Live dashboard</div>
+      <h2 class="rv">Everything logged, nothing hidden.</h2>
+      <p class="dashview-sub rv rv-d1">
+        Every incident, confidence score, root cause, and pipeline trace persists in SQLite and survives restarts.
+        The dashboard polls every 3 seconds with DOM-diffed updates -- no page flash, no visual disruption.
+      </p>
+      <div class="dash-grid">
+        <div class="dash-ss rv">
+          <img
+            src="https://raw.githubusercontent.com/aadi-joshi/nightingale-sre/master/dashboard_1.png"
+            alt="Nightingale live incident feed" loading="lazy" />
+          <div class="dash-ss-cap">Live incident feed. Green = resolved autonomously. Amber = active. Red = escalated.</div>
+        </div>
+        <div class="dash-ss rv rv-d1">
+          <img
+            src="https://raw.githubusercontent.com/aadi-joshi/nightingale-sre/master/dashboard_2.png"
+            alt="Nightingale incident detail view" loading="lazy" />
+          <div class="dash-ss-cap">Incident detail. Root cause, pipeline trace, and per-factor confidence breakdown.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ARCHITECTURE -->
+  <section class="arch" id="architecture">
+    <div class="arch-inner">
+      <div class="arch-header">
+        <h2 class="rv">Seven components.<br>One pipeline.</h2>
+        <p class="rv rv-d1">
+          Each component has a single job. Nothing is shared across concerns.
+          The full pipeline runs in under 10 seconds for most failures -- context load,
+          reasoning, sandbox verification, confidence scoring, and PR creation.
+        </p>
+      </div>
+
+      <div class="arch-grid rv">
+        <div class="arch-cell">
+          <span class="arch-icon">&gt;_</span>
+          <h4>MarathonAgent</h4>
+          <p>Calls GPT-4o with structured outputs to produce a typed FixPlan. Up to 3 reflective attempts with failure
+            feedback fed into the next prompt.</p>
+        </div>
+        <div class="arch-cell">
+          <span class="arch-icon">&#9654;</span>
+          <h4>VerificationAgent</h4>
+          <p>Applies the fix in a sandbox, runs the full pytest suite, and returns a typed VerificationResult with pass
+            ratio and output.</p>
+        </div>
+        <div class="arch-cell">
+          <span class="arch-icon">&#35;</span>
+          <h4>ConfidenceScorer</h4>
+          <p>Five-factor weighted formula. Uses gpt-4o-mini for independent risk classification of changed files.
+            Transparent, logged per-factor.</p>
+        </div>
+        <div class="arch-cell">
+          <span class="arch-icon">&#10003;</span>
+          <h4>Sandbox</h4>
+          <p>Copies the repository to a temporary directory. SHA-256 hashes the original before and verifies it after.
+            Any mismatch rejects the result.</p>
+        </div>
+        <div class="arch-cell">
+          <span class="arch-icon">&#8679;</span>
+          <h4>GitHubPRCreator</h4>
+          <p>Creates a branch, commits the fix, and opens a PR via the GitHub REST API. Falls back to direct file write
+            if no token is configured.</p>
+        </div>
+        <div class="arch-cell">
+          <span class="arch-icon">&#9679;</span>
+          <h4>IncidentDatabase</h4>
+          <p>SQLite-backed store for incident history, live status updates, metrics, and config. Survives process
+            restarts.</p>
+        </div>
+        <div class="arch-cell">
+          <span class="arch-icon">~</span>
+          <h4>Orchestrator</h4>
+          <p>Coordinates the full pipeline. Registers incidents, drives the reflective loop, calls the scorer, and
+            hands off to the resolution engine.</p>
+        </div>
+        <div class="arch-cell">
+          <span class="arch-icon">&#9741;</span>
+          <h4>Webhook + Dashboard</h4>
+          <p>FastAPI server. Receives GitHub webhooks, serves the live dashboard, and exposes a REST API for incident
+            history and metrics.</p>
+        </div>
+      </div>
+
+      <div class="arch-pipeline rv rv-d2">
+        <span class="t-dim">Webhook received</span><span class="t-cyan"> --&gt; </span><span class="t-dim">Context loaded</span><span class="t-cyan"> --&gt; </span><span class="t-dim">GPT-4o fix plan (up to 3 attempts)</span><span class="t-cyan"> --&gt; </span><span class="t-dim">Sandbox verification
+          </span><span class="t-cyan"> --&gt; </span><span class="t-dim">Confidence score (5-factor + gpt-4o-mini risk)</span><span class="t-cyan"> --&gt; </span><span class="t-dim">Decision: auto-resolve or escalate
+          </span><span class="t-cyan"> --&gt; </span><span class="t-ok">If &gt;= 0.85: GitHub PR opened, Slack notified</span><span class="t-dim">
+          </span><span class="t-cyan"> --&gt; </span><span class="t-amber">If &lt; 0.85: escalate with full incident report, engineer paged</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- METRICS -->
+  <section class="metrics-strip">
+    <div class="metrics-inner">
+      <div class="metric rv">
+        <div class="metric-val">&lt;10<span class="unit">s</span></div>
+        <div class="metric-lab">Typical resolution time</div>
+      </div>
+      <div class="metric rv rv-d1">
+        <div class="metric-val">0.85</div>
+        <div class="metric-lab">Confidence threshold to act</div>
+      </div>
+      <div class="metric rv rv-d2">
+        <div class="metric-val">3</div>
+        <div class="metric-lab">Max GPT-4o reasoning attempts</div>
+      </div>
+      <div class="metric rv rv-d3">
+        <div class="metric-val">0</div>
+        <div class="metric-lab">PRs merged without human approval</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUICKSTART -->
+  <section class="quickstart" id="quickstart">
+    <div class="qs-inner">
+      <div class="qs-text rv">
+        <div class="slabel">Quick start</div>
+        <h2>Running in three commands.</h2>
+        <p>Nightingale runs locally against your own repository. Set an API key, run the demo to verify everything
+          works, then start the server and point a webhook at it.</p>
+      </div>
+
+      <div class="qs-steps rv rv-d1">
+        <div class="qs-step">
+          <span class="qs-num">01</span>
+          <div class="qs-body">
+            <h4>Install and configure</h4>
+            <p>Clone the repository, install dependencies, and set your OpenAI API key.</p>
+            <div class="code-block"><span class="cb-lbl">shell</span><span class="cb-k">git</span> clone https://github.com/aadi-joshi/nightingale-sre.git
+<span class="cb-k">cd</span> nightingale-sre
+<span class="cb-k">pip</span> install -r requirements.txt
+<span class="cb-c"># Linux/macOS:</span>
+<span class="cb-k">export</span> OPENAI_API_KEY=<span class="cb-s">'sk-...'</span>
+<span class="cb-c"># Windows PowerShell:</span>
+<span class="cb-k">$env</span>:OPENAI_API_KEY = <span class="cb-s">'sk-...'</span></div>
+          </div>
+        </div>
+
+        <div class="qs-step">
+          <span class="qs-num">02</span>
+          <div class="qs-body">
+            <h4>Run the self-check and demo</h4>
+            <p>Nine-point diagnostic confirms everything is wired up. The demo runs all three scenarios against the
+              included test repo.</p>
+            <div class="code-block"><span class="cb-lbl">shell</span><span class="cb-k">python</span> main.py --self-check      <span class="cb-c"># 9-point diagnostic</span>
+<span class="cb-k">python</span> main.py --demo           <span class="cb-c"># interactive scenario picker</span>
+<span class="cb-k">python</span> main.py --scenario 1     <span class="cb-c"># wrong assertion</span>
+<span class="cb-k">python</span> main.py --scenario 2     <span class="cb-c"># broken import</span>
+<span class="cb-k">python</span> main.py --scenario 3     <span class="cb-c"># off-by-one bug</span></div>
+          </div>
+        </div>
+
+        <div class="qs-step">
+          <span class="qs-num">03</span>
+          <div class="qs-body">
+            <h4>Start the server and dashboard</h4>
+            <p>The server runs on port 8000. Open the dashboard at localhost:8000 to see the live incident feed.</p>
+            <div class="code-block"><span class="cb-lbl">shell</span><span class="cb-k">python</span> main.py --server
+<span class="cb-c"># dashboard: http://localhost:8000</span>
+<span class="cb-c"># webhook:   http://localhost:8000/webhook/github</span>
+<span class="cb-c"># api:       http://localhost:8000/api/v1/incidents</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRODUCTION DEPLOY -->
+  <section class="deploy" id="deploy">
+    <div class="deploy-inner">
+      <div class="slabel rv">Production</div>
+      <h2 class="rv">Wire it into any GitHub repo in four steps.</h2>
+      <p class="deploy-sub rv rv-d1">
+        Nightingale needs to run on a machine with network access and a local copy of your repository.
+        A small VPS, an EC2 instance, or the CI server itself all work. The webhook does the rest.
+      </p>
+      <div class="deploy-steps rv rv-d2">
+        <div class="dp-step">
+          <div class="dp-num">Step 01</div>
+          <div class="dp-title">Run the server</div>
+          <div class="dp-body">Start Nightingale on any machine that has your repo cloned. Expose it with a public URL
+            or an ngrok tunnel for testing.</div>
+          <div class="dp-code">python main.py --server --port 8000</div>
+        </div>
+        <div class="dp-step">
+          <div class="dp-num">Step 02</div>
+          <div class="dp-title">Add the webhook</div>
+          <div class="dp-body">In your GitHub repo settings, add a webhook pointing at your server URL. Select workflow
+            run and check run events.</div>
+          <div class="dp-code">Settings > Webhooks > Add webhook
+Payload URL: https://your-host:8000
+             /webhook/github
+Events: workflow runs, check runs</div>
+        </div>
+        <div class="dp-step">
+          <div class="dp-num">Step 03</div>
+          <div class="dp-title">Set credentials</div>
+          <div class="dp-body">Set a GitHub token for PR creation and an optional Slack webhook for escalation
+            notifications. Both are optional -- Nightingale falls back gracefully.</div>
+          <div class="dp-code">export GITHUB_TOKEN='ghp_...'
+export GITHUB_REPO='owner/repo'
+export SLACK_WEBHOOK_URL='https://...'</div>
+        </div>
+        <div class="dp-step">
+          <div class="dp-num">Step 04</div>
+          <div class="dp-title">Push a failing commit</div>
+          <div class="dp-body">That is it. The next CI failure triggers the full pipeline. A PR will be open before
+            anyone is notified.</div>
+          <div class="dp-code"># adjust threshold in config.yaml:
+confidence:
+  resolve_threshold: 0.85
+
+# raise to 0.90 for more conservative
+# auto-resolve behavior</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta-sec">
+    <h2 class="rv">The next failure is<br>already handled.</h2>
+    <p class="rv rv-d1">Open source. Self-hosted. No merge without human review.</p>
+    <div class="cta-actions rv rv-d2">
+      <a href="https://github.com/aadi-joshi/nightingale-sre" class="btn btn-primary" target="_blank"
+        rel="noopener">View on GitHub &rarr;</a>
+      <a href="https://github.com/aadi-joshi/nightingale-sre/blob/master/README.md" class="btn btn-secondary"
+        target="_blank" rel="noopener">Read the docs</a>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="foot-inner">
+      <div class="foot-left">Nightingale SRE v1.0.0</div>
+      <div class="foot-center">
+        <a href="https://github.com/aadi-joshi/nightingale-sre" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/aadi-joshi/nightingale-sre/blob/master/README.md" target="_blank"
+          rel="noopener">Docs</a>
+        <a href="#demo">Demo</a>
+        <a href="#quickstart">Quick Start</a>
+      </div>
+      <div class="foot-right">Autonomous CI Repair Agent</div>
+    </div>
+  </footer>
+
+  <script>
+    // ── Nav scroll border ───────────────────────────────────────────────────────
+    const nav = document.getElementById('main-nav');
+    window.addEventListener('scroll', () => {
+      nav.classList.toggle('scrolled', window.scrollY > 40);
+    }, { passive: true });
+
+    // ── Hero terminal animation ─────────────────────────────────────────────────
+    document.querySelectorAll('.tl').forEach(el => {
+      const d = parseInt(el.dataset.d || '0', 10);
+      setTimeout(() => el.classList.add('show'), d + 800);
+    });
+
+    // ── Scroll reveal ───────────────────────────────────────────────────────────
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add('vis');
+          obs.unobserve(e.target);
+        }
+      });
+    }, { rootMargin: '0px 0px -60px 0px', threshold: 0.06 });
+    document.querySelectorAll('.rv').forEach(el => obs.observe(el));
+
+    // ── Interactive Demo ────────────────────────────────────────────────────────
+    const STEPS = [
+      {
+        step: 'STEP 01 / 07',
+        title: 'Developer pushes a commit',
+        desc: 'A commit lands on main at 2:47 AM. GitHub Actions runs the test suite automatically on every push to main.',
+        dotClass: 'wait',
+        status: 'Waiting for CI result',
+        panel: 'git push',
+        elapsed: '0.0s'
+      },
+      {
+        step: 'STEP 02 / 07',
+        title: 'GitHub Actions fails',
+        desc: '3 tests pass. 1 assertion fails. GitHub detects the failure and fires a workflow_run.completed webhook to the Nightingale server endpoint.',
+        dotClass: 'fail',
+        status: 'test_calculate_total FAILED',
+        panel: 'pytest output',
+        elapsed: '0.8s'
+      },
+      {
+        step: 'STEP 03 / 07',
+        title: 'Webhook received',
+        desc: 'Nightingale receives the GitHub webhook payload. The incident is registered in SQLite and the pipeline starts immediately in a background task.',
+        dotClass: 'running',
+        status: 'Pipeline started -- INC-20240517-001',
+        panel: 'webhook payload',
+        elapsed: '1.9s'
+      },
+      {
+        step: 'STEP 04 / 07',
+        title: 'GPT-4o analyzes the failure',
+        desc: 'Repository context is loaded -- failing file, test output, and recent git history. GPT-4o produces a structured FixPlan with root cause, rationale, and exact file edits required.',
+        dotClass: 'running',
+        status: 'Generating fix plan...',
+        panel: 'gpt-4o reasoning',
+        elapsed: '3.1s'
+      },
+      {
+        step: 'STEP 05 / 07',
+        title: 'Sandbox verification',
+        desc: 'The repository is copied to an isolated temporary directory. The fix is applied and the full test suite runs. The original is SHA-256 hashed before and verified untouched after.',
+        dotClass: 'running',
+        status: 'Running pytest in sandbox...',
+        panel: 'sandbox run',
+        elapsed: '4.7s'
+      },
+      {
+        step: 'STEP 06 / 07',
+        title: 'Confidence scored',
+        desc: 'Five weighted factors determine whether to auto-resolve or escalate. The score must exceed 0.85. Below the threshold, the fix is discarded and an incident report goes to the engineer.',
+        dotClass: 'running',
+        status: 'Computing 5-factor confidence score...',
+        panel: 'confidence scoring',
+        elapsed: '6.2s'
+      },
+      {
+        step: 'STEP 07 / 07',
+        title: 'Pull request opened',
+        desc: 'Score 0.97 exceeds the threshold. Nightingale creates a branch, commits the fix, and opens a PR with the root cause and confidence breakdown. It does not merge. A human approves.',
+        dotClass: 'done',
+        status: 'PR #42 opened -- resolved in 8.3s',
+        panel: 'pr created',
+        elapsed: '8.3s'
+      }
+    ];
+
+    let current = 0;
+    let playing = false;
+    let playTimer = null;
+
+    function demoGo(step) {
+      if (step < 0 || step > 6) return;
+
+      // Deactivate old panel
+      const oldSlide = document.getElementById(`ps-${current}`);
+      if (oldSlide) oldSlide.classList.remove('active');
+
+      current = step;
+      const d = STEPS[step];
+
+      document.getElementById('si-step').textContent = d.step;
+      document.getElementById('si-title').textContent = d.title;
+      document.getElementById('si-desc').textContent = d.desc;
+      document.getElementById('si-status').textContent = d.status;
+      document.getElementById('panel-label').textContent = d.panel;
+      document.getElementById('demo-elapsed').textContent = d.elapsed;
+
+      const dot = document.getElementById('si-dot');
+      dot.className = 'sdot ' + d.dotClass;
+
+      // Activate new panel
+      const newSlide = document.getElementById(`ps-${step}`);
+      if (newSlide) newSlide.classList.add('active');
+
+      // Update step bar buttons
+      document.querySelectorAll('.dsb').forEach((btn, i) => {
+        btn.classList.remove('active', 'done');
+        if (i === step) btn.classList.add('active');
+        else if (i < step) btn.classList.add('done');
+      });
+
+      // Update dots
+      document.querySelectorAll('.demo-dot').forEach((dot, i) => {
+        dot.classList.remove('active', 'done');
+        if (i === step) dot.classList.add('active');
+        else if (i < step) dot.classList.add('done');
+      });
+
+      // Animate confidence bars on step 5
+      if (step === 5) {
+        setTimeout(animateConfidence, 400);
+      }
+    }
+
+    function animateConfidence() {
+      const bars = [
+        { n: 1, text: '████████████████████', val: '1.00', cls: 't-ok' },
+        { n: 2, text: '████████████████████', val: '1.00', cls: 't-ok' },
+        { n: 3, text: '████████████████████', val: '1.00', cls: 't-ok' },
+        { n: 4, text: '█████████████████░░░', val: '0.85', cls: 't-amber' },
+        { n: 5, text: '███████████████████░', val: '0.95', cls: 't-ok' },
+      ];
+
+      bars.forEach((b, idx) => {
+        setTimeout(() => {
+          const barEl = document.getElementById(`cbar-${b.n}`);
+          const valEl = document.getElementById(`cv-${b.n}`);
+          if (barEl) {
+            barEl.className = 't-ok';
+            barEl.textContent = b.text + '  ';
+          }
+          if (valEl) {
+            valEl.className = b.cls;
+            valEl.textContent = b.val;
+          }
+        }, idx * 180);
+      });
+
+      setTimeout(() => {
+        const scoreEl = document.getElementById('conf-score');
+        const decEl = document.getElementById('conf-decision');
+        if (scoreEl) {
+          scoreEl.className = 't-ok';
+          scoreEl.textContent = '0.97 > 0.85 threshold';
+        }
+        if (decEl) {
+          decEl.className = 't-ok';
+          decEl.textContent = 'AUTO-RESOLVE';
+        }
+      }, bars.length * 180 + 200);
+    }
+
+    function demoNav(dir) {
+      demoGo(current + dir);
+    }
+
+    function demoTogglePlay() {
+      playing = !playing;
+      const btn = document.getElementById('btn-play');
+      if (playing) {
+        btn.textContent = '|| Pause';
+        demoGo(0);
+        playTimer = setInterval(() => {
+          if (current >= 6) {
+            clearInterval(playTimer);
+            playing = false;
+            btn.textContent = '▶ Auto-play';
+            return;
+          }
+          demoNav(1);
+        }, 3200);
+      } else {
+        clearInterval(playTimer);
+        btn.textContent = '▶ Auto-play';
+      }
+    }
+
+    // Wire step buttons
+    document.querySelectorAll('.dsb').forEach(btn => {
+      btn.addEventListener('click', () => demoGo(parseInt(btn.dataset.step, 10)));
+    });
+
+    // Keyboard nav when demo is visible
+    document.addEventListener('keydown', (e) => {
+      const demoEl = document.getElementById('demo');
+      if (!demoEl) return;
+      const rect = demoEl.getBoundingClientRect();
+      if (rect.top > window.innerHeight || rect.bottom < 0) return;
+      if (e.key === 'ArrowRight') demoNav(1);
+      if (e.key === 'ArrowLeft') demoNav(-1);
+    });
+  </script>
+</body>
+
+</html>
